@@ -1,0 +1,32 @@
+name: Build & Deploy to WP Engine
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Deploy dist/ to WP Engine via SFTP
+        uses: wlixcc/SFTP-Deploy-Action@v1.2.4
+        with:
+          server: ${{ secrets.WPENGINE_SFTP_HOST }}
+          username: ${{ secrets.WPENGINE_SFTP_USER }}
+          password: ${{ secrets.WPENGINE_SFTP_PASS }}
+          port: 2222
+          local_path: ./dist/*
+          remote_path: /sites/dzuynguyen/tennis
+          sftp_only: true
+          delete_remote_files: true

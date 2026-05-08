@@ -1,3 +1,8 @@
 node_modules/
 dist/
 .DS_Store
+
+# Environment variables — copy .env.example to .env.local for dev.
+.env
+.env.local
+.env.*.local

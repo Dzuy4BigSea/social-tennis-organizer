@@ -86,19 +86,68 @@ event-management platform.
   semantics (no RLS-by-membership; access is by knowing the code).
   Account-mode events live under `org_id` with normal RLS.
 
-### Phasing (proposed — not committed)
+### Phase 1 — "today's app on Supabase, accounts + guest side-by-side"
 
-1. **Domain refactor in place.** Introduce an `Event` shell around the
-   current state without changing UI; existing rooms still work.
-2. **Backend bootstrap.** Stand up the chosen service with `Event`
-   CRUD; migrate room save/load to it; keep PHP endpoint as a
-   fallback during transition.
-3. **First new event type.** Pick the smallest one that earns its
-   keep — likely "Event with RSVPs" since it's the closest extension
-   of today's tournament flow.
-4. **Organizer dashboard.** List of events; create/edit metadata.
-5. **Second event type** (Social or League, depending on demand).
-6. **Player-facing UI** comes after at least two event types exist.
+Goal: every existing tournament behavior keeps working, but is
+backed by Supabase auth + storage when the user is signed in. The
+6-char-room guest path stays untouched on the existing PHP endpoint.
+
+Checklist:
+
+- [ ] **Supabase project provisioned** (manual, in the Supabase
+      dashboard). URL + anon key shared with the SPA via env vars.
+- [ ] **Schema applied** — see `supabase/schema.sql`. Tables:
+      `profiles`, `orgs`, `org_members`, `org_invites`, `events`.
+      Roles: `owner / organizer / player`. Event state lives in
+      `events.state jsonb` (mirrors today's reducer state — no
+      relational decomposition yet).
+- [ ] **`.env.example`** lists `VITE_SUPABASE_URL` and
+      `VITE_SUPABASE_ANON_KEY`. Local dev uses `.env.local`
+      (gitignored).
+- [ ] **`@supabase/supabase-js`** installed; client in
+      `src/lib/supabase.js`.
+- [ ] **Auth UI**: sign-up, log-in, log-out, password recovery.
+      Display name collected at sign-up, written to `profiles`.
+      Persistent session via Supabase's default storage.
+- [ ] **Org bootstrap**: new user is prompted to *create an org* or
+      *redeem an invite code*. Redemption uses the
+      `redeem_org_invite` SQL function.
+- [ ] **Org switcher** in the header (when the user belongs to >1
+      org).
+- [ ] **Event list**: logged-in users see "your org's events"
+      instead of jumping straight to setup. Selecting one loads
+      `events.state` into the existing reducer.
+- [ ] **Save/load**: when signed in, save target is the `events`
+      row (jsonb). LocalStorage stays as a "pre-save" buffer.
+      Guest 6-char path is unchanged on `tennis-save.php`.
+- [ ] **Members panel**: owners can list members and generate
+      `org_invites` codes (with optional expiry, default role).
+
+Out of scope for Phase 1 (deferred):
+
+- A `players` table with cross-event identity / lifetime stats —
+  Phase 2.
+- Migrating existing localStorage tournaments into Supabase.
+- Any new event type (`event` / `social` / `league`) — schema has
+  the enum slot, but the UI only supports `tournament`.
+- Companion service on Hostinger VPS — only when we hit work
+  Supabase can't cover.
+
+### Later phases (sketch only)
+
+1. **Phase 2 — first new event type.** Likely `event` with RSVPs,
+   since it's the closest extension of today's tournament flow.
+   Introduces `players` (per-org persistent roster) and
+   `event_participants` (RSVP status).
+2. **Phase 3 — organizer dashboard polish.** Edit event metadata,
+   archive past events, see lifetime per-player stats.
+3. **Phase 4 — `social` event type.** Drop-in mixer + recurring
+   social variants. Surfaces lifetime stats more.
+4. **Phase 5 — `league`.** Multi-week scheduled season with a
+   `league_seasons` + `league_schedule` schema. Playoffs as a
+   stretch goal.
+5. **Phase 6 — player-facing UI.** RSVPs, schedule, standings,
+   self-serve stats. Lands once at least two event types exist.
 
 ## Correctness & UX gaps
 

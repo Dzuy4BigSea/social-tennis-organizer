@@ -1,13 +1,31 @@
 import React from 'react'
 
-export default function WelcomeScreen({ onSignIn, onSignUp, onGuest, configured }) {
+export default function WelcomeScreen({
+  onSignIn,
+  onSignUp,
+  onGuest,
+  configured,
+  inviteOrgName,
+}) {
   return (
     <div className="min-h-screen bg-emerald-700 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full">
         <h1 className="text-2xl font-bold text-emerald-700 mb-2">🎾 Tennis Organizer</h1>
-        <p className="text-gray-500 mb-8 text-sm">
+        <p className="text-gray-500 mb-6 text-sm">
           Run tournaments, leagues, and socials for your club.
         </p>
+
+        {inviteOrgName && (
+          <div className="mb-6 rounded-lg bg-emerald-50 border border-emerald-200 p-4">
+            <p className="text-sm text-emerald-900">
+              <strong>{inviteOrgName}</strong> invited you to join.
+            </p>
+            <p className="text-xs text-emerald-700 mt-1">
+              Sign in or create an account to accept.
+            </p>
+          </div>
+        )}
+
         <div className="space-y-3">
           {configured ? (
             <>
@@ -17,12 +35,14 @@ export default function WelcomeScreen({ onSignIn, onSignUp, onGuest, configured 
               >
                 Sign in
               </button>
-              <button
-                onClick={onSignUp}
-                className="w-full py-3 bg-white text-emerald-700 border-2 border-emerald-600 rounded-lg font-semibold hover:bg-emerald-50 transition-colors"
-              >
-                Create account
-              </button>
+              {inviteOrgName && (
+                <button
+                  onClick={onSignUp}
+                  className="w-full py-3 bg-white text-emerald-700 border-2 border-emerald-600 rounded-lg font-semibold hover:bg-emerald-50 transition-colors"
+                >
+                  Accept invite — create account
+                </button>
+              )}
               <div className="relative py-2">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-gray-200" />
@@ -45,6 +65,13 @@ export default function WelcomeScreen({ onSignIn, onSignUp, onGuest, configured 
             Continue as guest
           </button>
         </div>
+
+        {configured && !inviteOrgName && (
+          <p className="text-xs text-gray-400 text-center mt-6">
+            Sign-up is by invitation. Ask your club organizer for a
+            link.
+          </p>
+        )}
       </div>
     </div>
   )

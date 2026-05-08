@@ -1,7 +1,85 @@
 # Backlog
 
-Open work items, grouped by theme. Order within each section is rough
-priority, top = most worth doing next.
+Open work items, grouped by theme. The first section ("Platform
+direction") is the active strategic effort. Sections below it are
+tactical fixes for the current single-event app — still wanted, but
+secondary until the platform reframe is scoped.
+
+## Platform direction
+
+Today's app is a single-session "Up and Down the River" tournament.
+The goal is to reframe it as one *type* of event inside a broader
+event-management platform.
+
+### Event types we want to support
+
+- **Tournament — Up and Down the River** (today's flow). One-day,
+  single-session, on-court rotation.
+- **Tournament — other formats.** Brackets, round-robin, pro-am, etc.
+  Up and Down becomes one option in a "tournament format" picker.
+- **Event.** A scheduled one-off with pre-event sign-ups (RSVPs),
+  optional payment / charity collection, optional brackets. The
+  current tournament flow becomes the on-the-day step of an event.
+- **Social.** Recurring or drop-in casual play. Sub-variants worth
+  carrying:
+  - drop-in mixer with no permanent record;
+  - recurring social where regulars check in and per-player stats
+    persist across sessions;
+  - RSVP social — organizer posts a date, players sign up, organizer
+    confirms, then runs the session.
+- **League.** Definition still open — see "Open questions" below.
+  Likely one of: multi-week season w/ fixed schedule, ladder / ranked
+  challenge, or aggregated round-robin across multiple sessions.
+
+### What this implies
+
+- **Domain reshape.** Introduce a top-level entity (working name
+  `Event`) that owns the per-day session(s). Today's `tournament` /
+  `players` / `courts` / `history` become a sub-document of one event.
+- **Real backend.** `public/tennis-save.php` (single JSON blob per
+  6-char code) won't carry leagues, RSVPs, multi-session standings,
+  or persistent player identities. Need a proper service with a
+  database, accounts, and auth.
+- **Two UIs that don't exist yet.**
+  - *Organizer / management UI* — dashboard listing events across
+    types, their statuses, upcoming sessions, sign-up review,
+    historical results.
+  - *Player-facing UI* — discover events, RSVP, see schedule, view
+    standings, look up own stats.
+- **Migration path for today's flow.** The 6-char-room "guest" mode
+  is genuinely useful (no account, fast setup). Decide whether it
+  stays as an unauthenticated quick-start, or whether everything
+  becomes account-bound.
+
+### Open questions (need answers before design)
+
+- **League shape.** Multi-week season, ladder, or session aggregator?
+  Or all three as sub-types?
+- **Backend hosting.** Stay on WP Engine (PHP + managed MySQL) so
+  the deploy story stays one-click, or move to a dedicated service
+  (e.g. Node/Postgres) hosted separately and embedded via the same
+  shortcode?
+- **Auth model.** Reuse WordPress accounts (single sign-on with the
+  surrounding site), magic-link by email, or an independent user db?
+- **Multi-tenant.** One app instance per club / organization, or one
+  platform that serves many clubs (with per-club roles)?
+- **Stats model.** Are wins/losses scoped per-event, per-season, or
+  also rolled up to a per-player lifetime record? Affects the data
+  model significantly.
+
+### Phasing (proposed — not committed)
+
+1. **Domain refactor in place.** Introduce an `Event` shell around the
+   current state without changing UI; existing rooms still work.
+2. **Backend bootstrap.** Stand up the chosen service with `Event`
+   CRUD; migrate room save/load to it; keep PHP endpoint as a
+   fallback during transition.
+3. **First new event type.** Pick the smallest one that earns its
+   keep — likely "Event with RSVPs" since it's the closest extension
+   of today's tournament flow.
+4. **Organizer dashboard.** List of events; create/edit metadata.
+5. **Second event type** (Social or League, depending on demand).
+6. **Player-facing UI** comes after at least two event types exist.
 
 ## Correctness & UX gaps
 

@@ -4,6 +4,13 @@ Single-page React app for running social / charity tennis events
 ("Up and Down the River" rotation). Embedded into a WordPress site
 via a shortcode and deployed to WP Engine.
 
+> **Direction:** there is an active effort to expand this from a
+> single-session tournament SPA into a broader event-management
+> platform with multiple event types (tournament, event, social,
+> league) and a real backend. See `BACKLOG.md` → "Platform direction".
+> Until that lands, today's flow is "the only event type". Avoid
+> baking in assumptions that the app only ever runs one event.
+
 ## Stack
 
 - React 18 + Vite 5, plain JS (no TS).

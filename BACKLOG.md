@@ -57,30 +57,33 @@ event-management platform.
   or singles, scheduled matchups across N weeks, season-long
   standings, with playoffs as a stretch goal. Other league shapes
   (ladder, session aggregator) are deferred.
-- **Backend = dedicated service, not WP.** Stand up our own service
-  (database + API) hosted separately from WP Engine; the SPA stays
-  embedded via the WordPress shortcode but talks to the new service
-  over HTTPS. The existing `tennis-save.php` stays only as a
-  short-term fallback during transition.
+- **Backend = Supabase, with a VPS companion on demand.** Supabase
+  hosts Postgres + Auth + row-level security. The SPA talks to
+  Supabase directly via `@supabase/supabase-js`. We add a small
+  Node service in Docker on the Hostinger VPS only when we hit
+  work Supabase can't cover cleanly (cron jobs, payment webhooks,
+  email/SMS reminders, anything needing a server-side secret).
+  The existing `tennis-save.php` stays only as a short-term
+  fallback during transition.
+- **Auth = Supabase Auth, email + password, persistent session.**
+  Supabase's default refresh-token storage handles "stay logged in".
+  UI also collects a separate `display_name` (what shows up to
+  other players) so the credential email isn't leaked.
+- **Multi-tenant from day one.** Every domain table carries `org_id`
+  referencing an `orgs` table; an `org_members` table maps
+  `(user_id, org_id, role)`. RLS policies restrict reads/writes to
+  rows whose `org_id` matches the requesting user's memberships.
 
-### Still open (need answers before design)
+### Still open (need answers before data model)
 
-- **Service stack.** Node (Express/Fastify) + Postgres? Python
-  (FastAPI) + Postgres? Something else? Prisma vs raw SQL?
-- **Hosting target for the service.** Fly.io, Render, Railway, AWS,
-  a small VPS? Affects ops burden.
-- **Auth model.** Magic-link email is lowest-friction; WordPress SSO
-  ties accounts to the surrounding site; an independent username/
-  password gives the most freedom but the most work. Pick one.
-- **Multi-tenant.** One app instance per club, or one platform
-  serving many clubs (with per-club roles like organizer / player)?
-  Affects schema (tenant_id everywhere) and routing.
 - **Stats scope.** Per-event only, per-season, or also a lifetime
   per-player record across events? Affects whether `Player` is a
-  per-event entity or a top-level one.
+  per-event entity (just a name on a roster) or a top-level
+  account-linked entity with cross-event history.
 - **Guest / no-account flow.** Does today's 6-char-room "no signup"
   path stay alive for quick one-off tournaments, or does everything
-  become account-bound?
+  become account-bound? If it stays, those rooms can't have RLS the
+  same way — they'd need a separate "anonymous session" path.
 
 ### Phasing (proposed — not committed)
 

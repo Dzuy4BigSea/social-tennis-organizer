@@ -74,16 +74,17 @@ event-management platform.
   `(user_id, org_id, role)`. RLS policies restrict reads/writes to
   rows whose `org_id` matches the requesting user's memberships.
 
-### Still open (need answers before data model)
-
-- **Stats scope.** Per-event only, per-season, or also a lifetime
-  per-player record across events? Affects whether `Player` is a
-  per-event entity (just a name on a roster) or a top-level
-  account-linked entity with cross-event history.
-- **Guest / no-account flow.** Does today's 6-char-room "no signup"
-  path stay alive for quick one-off tournaments, or does everything
-  become account-bound? If it stays, those rooms can't have RLS the
-  same way — they'd need a separate "anonymous session" path.
+- **Stats scope = per-event always, lifetime when signed in.**
+  Anonymous / guest events accrue stats only inside that event.
+  Account-holders also get a lifetime roll-up scoped to the org
+  (and possibly cross-org later). Implies `Player` is a per-org
+  entity that can optionally link to a `user_id` — when linked,
+  results contribute to that user's lifetime totals.
+- **Guest 6-char-room path stays alive.** Today's "no signup"
+  quick-start mode is preserved for ad-hoc tournaments. Those
+  events live in a separate guest bucket with read/write-by-code
+  semantics (no RLS-by-membership; access is by knowing the code).
+  Account-mode events live under `org_id` with normal RLS.
 
 ### Phasing (proposed — not committed)
 

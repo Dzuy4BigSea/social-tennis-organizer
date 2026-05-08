@@ -10,6 +10,11 @@
 -- in-app reducer state). A relational decomposition into players /
 -- participants / matches lands in Phase 2.
 
+-- Defer `language sql` function-body validation so helper functions
+-- can reference tables defined later in this file. Cleared at end of
+-- the session by Supabase; harmless either way.
+set check_function_bodies = off;
+
 -- ─── Helpers ─────────────────────────────────────────────────────────────────
 
 -- Which orgs a user belongs to. SECURITY DEFINER so RLS policies on

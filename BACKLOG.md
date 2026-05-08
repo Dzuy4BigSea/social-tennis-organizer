@@ -51,21 +51,36 @@ event-management platform.
   stays as an unauthenticated quick-start, or whether everything
   becomes account-bound.
 
-### Open questions (need answers before design)
+### Decisions so far
 
-- **League shape.** Multi-week season, ladder, or session aggregator?
-  Or all three as sub-types?
-- **Backend hosting.** Stay on WP Engine (PHP + managed MySQL) so
-  the deploy story stays one-click, or move to a dedicated service
-  (e.g. Node/Postgres) hosted separately and embedded via the same
-  shortcode?
-- **Auth model.** Reuse WordPress accounts (single sign-on with the
-  surrounding site), magic-link by email, or an independent user db?
-- **Multi-tenant.** One app instance per club / organization, or one
-  platform that serves many clubs (with per-club roles)?
-- **Stats model.** Are wins/losses scoped per-event, per-season, or
-  also rolled up to a per-player lifetime record? Affects the data
-  model significantly.
+- **League v1 = multi-week scheduled season.** Fixed roster of teams
+  or singles, scheduled matchups across N weeks, season-long
+  standings, with playoffs as a stretch goal. Other league shapes
+  (ladder, session aggregator) are deferred.
+- **Backend = dedicated service, not WP.** Stand up our own service
+  (database + API) hosted separately from WP Engine; the SPA stays
+  embedded via the WordPress shortcode but talks to the new service
+  over HTTPS. The existing `tennis-save.php` stays only as a
+  short-term fallback during transition.
+
+### Still open (need answers before design)
+
+- **Service stack.** Node (Express/Fastify) + Postgres? Python
+  (FastAPI) + Postgres? Something else? Prisma vs raw SQL?
+- **Hosting target for the service.** Fly.io, Render, Railway, AWS,
+  a small VPS? Affects ops burden.
+- **Auth model.** Magic-link email is lowest-friction; WordPress SSO
+  ties accounts to the surrounding site; an independent username/
+  password gives the most freedom but the most work. Pick one.
+- **Multi-tenant.** One app instance per club, or one platform
+  serving many clubs (with per-club roles like organizer / player)?
+  Affects schema (tenant_id everywhere) and routing.
+- **Stats scope.** Per-event only, per-season, or also a lifetime
+  per-player record across events? Affects whether `Player` is a
+  per-event entity or a top-level one.
+- **Guest / no-account flow.** Does today's 6-char-room "no signup"
+  path stay alive for quick one-off tournaments, or does everything
+  become account-bound?
 
 ### Phasing (proposed — not committed)
 

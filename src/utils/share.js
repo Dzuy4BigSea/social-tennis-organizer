@@ -32,14 +32,20 @@ export function getRecentRooms() {
   }
 }
 
-export function trackRoomVisit({ code, name, date }) {
-  if (!code) return
+export function trackRoomVisit(entry) {
+  if (!entry || !entry.code) return
   try {
-    const list = getRecentRooms().filter(r => r.code !== code)
+    const list = getRecentRooms().filter(r => r.code !== entry.code)
     list.unshift({
-      code,
-      name: name || '',
-      date: date || '',
+      code: entry.code,
+      name: entry.name || '',
+      date: entry.date || entry.startDate || '',
+      typeId: entry.typeId || '',
+      variantId: entry.variantId || '',
+      ratingId: entry.ratingId || '',
+      startDate: entry.startDate || '',
+      endDate: entry.endDate || '',
+      ongoing: !!entry.ongoing,
       lastVisited: Date.now(),
     })
     localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_LIMIT)))

@@ -3,11 +3,16 @@ import StandingsGrid from './StandingsGrid.jsx'
 import PinGate from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
+import LiveBracket from './LiveBracket.jsx'
+import ComingSoon from './ComingSoon.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
+import { getEventType } from '../utils/eventTypes.js'
 
 export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
   const { tournament, divisions } = state
+  const evt = getEventType(tournament.type)
+  const engine = evt.engine
   const liveDivisions = divisions.filter(d => d.locked)
   const [activeId, setActiveId] = useState(liveDivisions[0]?.id ?? null)
   const [showPinGate, setShowPinGate] = useState(false)
@@ -25,20 +30,17 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
     }
   }
 
-  if (!active) {
-    return (
-      <div className="max-w-3xl mx-auto p-6 text-center text-gray-500">
-        No divisions are locked. Go back to setup and lock at least one division.
-      </div>
-    )
-  }
+  // Round-robin needs at least one locked division to have anything
+  // to show; bracket events have their own emptiness check inside
+  // LiveBracket. Coming-soon types just render the placeholder.
+  const noDivisions = engine === 'roundRobin' && !active
 
   return (
     <div className="max-w-5xl mx-auto px-3 py-4">
       <header className="mb-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <Brand
-            subtitle={tournament.name || 'Feed-In Tournament'}
+            subtitle={tournament.name}
             compact
             onClick={onGoHome}
           />
@@ -79,19 +81,40 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
         <div className="vinoy-rule mt-3" />
       </header>
 
-      <DivisionTabs
-        divisions={liveDivisions}
-        activeId={active.id}
-        onSelect={setActiveId}
-      />
+      {engine === 'roundRobin' && (
+        noDivisions ? (
+          <div className="max-w-3xl mx-auto p-6 text-center text-vinoy-ink/60">
+            No divisions are locked. Go back to setup and lock at least one
+            division.
+          </div>
+        ) : (
+          <>
+            <DivisionTabs
+              divisions={liveDivisions}
+              activeId={active.id}
+              onSelect={setActiveId}
+            />
+            <DivisionPanel
+              division={active}
+              passes={tournament.passes}
+              dispatch={dispatch}
+              ifAuthed={ifAuthed}
+              proAuthed={proAuthed}
+            />
+          </>
+        )
+      )}
 
-      <DivisionPanel
-        division={active}
-        passes={tournament.passes}
-        dispatch={dispatch}
-        ifAuthed={ifAuthed}
-        proAuthed={proAuthed}
-      />
+      {engine === 'singleElim' && (
+        <LiveBracket
+          state={state}
+          dispatch={dispatch}
+          ifAuthed={ifAuthed}
+          proAuthed={proAuthed}
+        />
+      )}
+
+      {engine === 'comingSoon' && <ComingSoon state={state} />}
 
       {showPinGate && (
         <PinGate

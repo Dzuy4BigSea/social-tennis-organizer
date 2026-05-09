@@ -12,16 +12,28 @@ import { formatMatchTime } from '../utils/format.js'
 
 export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions } = state
+  const brackets = state.brackets || []
   const evt = getEventType(tournament.type)
   const engine = evt.engine
-  const liveDivisions = divisions.filter(d => d.locked)
-  const [activeId, setActiveId] = useState(liveDivisions[0]?.id ?? null)
+  // Build a unified tab list: round-robin divisions first, then
+  // brackets. Each tab carries the underlying draw object plus a
+  // discriminant so the panel switcher knows what to render.
+  const tabs = [
+    ...divisions.filter(d => d.locked).map(d => ({ kind: 'rr', id: d.id, name: d.name || 'Division', draw: d })),
+    ...brackets.filter(b => b.locked && (b.matches?.length || 0) > 0).map(b => ({
+      kind: b.type === 'doubleElim' ? 'de' : 'se',
+      id: b.id,
+      name: b.name || (b.type === 'doubleElim' ? 'Double Elim' : 'Single Elim'),
+      draw: b,
+    })),
+  ]
+  const [activeId, setActiveId] = useState(tabs[0]?.id ?? null)
   const [showPinGate, setShowPinGate] = useState(false)
   const [pendingAction, setPendingAction] = useState(null)
 
   const proAuthed = !tournament.pinHash || Boolean(getStoredPin())
 
-  const active = liveDivisions.find(d => d.id === activeId) ?? liveDivisions[0]
+  const active = tabs.find(t => t.id === activeId) ?? tabs[0]
 
   function ifAuthed(fn) {
     if (proAuthed) fn()
@@ -30,11 +42,6 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
       setShowPinGate(true)
     }
   }
-
-  // Round-robin needs at least one locked division to have anything
-  // to show; bracket events have their own emptiness check inside
-  // LiveBracket. Coming-soon types just render the placeholder.
-  const noDivisions = engine === 'roundRobin' && !active
 
   return (
     <div className="max-w-5xl mx-auto px-3 py-4">
@@ -91,40 +98,37 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
         <div className="vinoy-rule mt-3" />
       </header>
 
-      {engine === 'roundRobin' && (
-        noDivisions ? (
-          <div className="max-w-3xl mx-auto p-6 text-center text-vinoy-ink/60">
-            No divisions are locked. Go back to setup and lock at least one
-            division.
-          </div>
+      {tabs.length === 0 ? (
+        engine === 'comingSoon' ? (
+          <ComingSoon state={state} />
         ) : (
-          <>
-            <DivisionTabs
-              divisions={liveDivisions}
-              activeId={active.id}
-              onSelect={setActiveId}
-            />
+          <div className="max-w-3xl mx-auto p-6 text-center text-vinoy-ink/60">
+            No draws are locked yet. Head back to Setup and lock a division
+            or generate a bracket.
+          </div>
+        )
+      ) : (
+        <>
+          <DrawTabs tabs={tabs} activeId={active.id} onSelect={setActiveId} />
+          {active.kind === 'rr' && (
             <DivisionPanel
-              division={active}
+              division={active.draw}
               passes={tournament.passes}
               dispatch={dispatch}
               ifAuthed={ifAuthed}
               proAuthed={proAuthed}
             />
-          </>
-        )
+          )}
+          {(active.kind === 'se' || active.kind === 'de') && (
+            <LiveBracket
+              bracket={active.draw}
+              dispatch={dispatch}
+              ifAuthed={ifAuthed}
+              proAuthed={proAuthed}
+            />
+          )}
+        </>
       )}
-
-      {(engine === 'singleElim' || engine === 'doubleElim') && (
-        <LiveBracket
-          state={state}
-          dispatch={dispatch}
-          ifAuthed={ifAuthed}
-          proAuthed={proAuthed}
-        />
-      )}
-
-      {engine === 'comingSoon' && <ComingSoon state={state} />}
 
       {showPinGate && (
         <PinGate
@@ -146,27 +150,32 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
   )
 }
 
-function DivisionTabs({ divisions, activeId, onSelect }) {
+function DrawTabs({ tabs, activeId, onSelect }) {
   return (
     <div className="overflow-x-auto -mx-3 px-3 mb-3">
       <div className="flex gap-2 min-w-max">
-        {divisions.map(d => {
-          const completed = d.matches.filter(m => m.completed).length
-          const total = d.matches.length
-          const isActive = d.id === activeId
+        {tabs.map(t => {
+          const d = t.draw
+          const completed = (d.matches || []).filter(m => m.completed).length
+          const total = (d.matches || []).length
+          const isActive = t.id === activeId
+          const kindLabel =
+            t.kind === 'rr' ? 'Round Robin' : t.kind === 'de' ? 'Double Elim' : 'Single Elim'
           return (
             <button
-              key={d.id}
-              onClick={() => onSelect(d.id)}
-              className={`px-4 py-2 rounded-xl font-semibold whitespace-nowrap transition ${
+              key={t.id}
+              onClick={() => onSelect(t.id)}
+              className={`px-4 py-2 rounded-xl font-semibold whitespace-nowrap transition text-left ${
                 isActive
-                  ? 'bg-tennis-green text-white shadow'
-                  : 'bg-white border border-gray-200 text-gray-700'
+                  ? 'bg-vinoy-green text-white shadow'
+                  : 'bg-white border border-vinoy-border text-vinoy-ink/80'
               }`}
             >
-              <div className="text-sm">{d.name || 'Division'}</div>
-              <div className={`text-xs ${isActive ? 'text-white/80' : 'text-gray-500'}`}>
-                {d.courtLabel ? `Court ${d.courtLabel} · ` : ''}
+              <div className="text-sm">{t.name}</div>
+              <div className={`text-xs ${isActive ? 'text-white/80' : 'text-vinoy-ink/50'}`}>
+                {kindLabel}
+                {d.courtLabel ? ` · Court ${d.courtLabel}` : ''}
+                {' · '}
                 {completed}/{total} matches
               </div>
             </button>

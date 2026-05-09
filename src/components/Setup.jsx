@@ -15,7 +15,8 @@ import {
 } from '../utils/eventTypes.js'
 
 export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }) {
-  const { tournament, divisions, bracket } = state
+  const { tournament, divisions } = state
+  const brackets = state.brackets || []
   const [showPinSetup, setShowPinSetup] = useState(false)
   const [showPinGate, setShowPinGate] = useState(false)
 
@@ -80,10 +81,13 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         </div>
       )}
 
-      {engine === 'roundRobin' && (
-        <section>
+      {/* Divisions (round-robin draws). Always shown for roundRobin
+          events; otherwise shown only when the pro has actually added
+          a division so the page stays clean. */}
+      {(engine === 'roundRobin' || divisions.length > 0) && (
+        <section className="mb-4">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-display text-xl font-bold text-vinoy-green">Divisions</h2>
+            <h2 className="font-display text-xl font-bold text-vinoy-green">Round-robin divisions</h2>
             <button
               onClick={() =>
                 ifAuthed(() => dispatch({ type: 'ADD_DIVISION', payload: { name: '' } }))
@@ -96,7 +100,8 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
 
           {divisions.length === 0 ? (
             <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60">
-              No divisions yet. Add one to start (e.g. <em>Mens 4.0/Open</em>).
+              No round-robin divisions yet. Add one to start
+              (e.g. <em>Mens 4.0/Open</em>).
             </div>
           ) : (
             <div className="space-y-3">
@@ -114,15 +119,65 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         </section>
       )}
 
-      {(engine === 'singleElim' || engine === 'doubleElim') && (
-        <SetupBracket state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
+      {/* Brackets (elimination draws). Always available unless this is
+          a coming-soon stub event, so a single tournament can mix
+          round-robin divisions with bracket draws. */}
+      {engine !== 'comingSoon' && (
+        <section className="mb-2">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 className="font-display text-xl font-bold text-vinoy-green">Brackets</h2>
+            <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  ifAuthed(() => dispatch({ type: 'ADD_BRACKET', payload: { kind: 'singleElim' } }))
+                }
+                className="px-3 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm"
+              >
+                + Single Elim
+              </button>
+              <button
+                onClick={() =>
+                  ifAuthed(() => dispatch({ type: 'ADD_BRACKET', payload: { kind: 'doubleElim' } }))
+                }
+                className="px-3 py-2 rounded-xl border border-vinoy-green text-vinoy-green font-semibold text-sm"
+              >
+                + Double Elim
+              </button>
+            </div>
+          </div>
+          {brackets.length === 0 ? (
+            <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60 mb-4">
+              No brackets yet. Add a single- or double-elimination draw above
+              to start placing entrants.
+            </div>
+          ) : (
+            brackets.map(b => (
+              <SetupBracket
+                key={b.id}
+                bracket={b}
+                dispatch={dispatch}
+                ifAuthed={ifAuthed}
+                defaultEntrantKind={evt.entrantKind}
+                onRemove={
+                  brackets.length > 1
+                    ? () =>
+                        ifAuthed(() => {
+                          if (confirm(`Remove bracket "${b.name || 'unnamed'}"?`))
+                            dispatch({ type: 'REMOVE_BRACKET', payload: { id: b.id } })
+                        })
+                    : undefined
+                }
+              />
+            ))
+          )}
+        </section>
       )}
 
       {engine === 'comingSoon' && <ComingSoon state={state} />}
 
       <SchedulePanel state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
 
-      {canGoLive(engine, divisions, bracket) && (
+      {canGoLive(engine, divisions, brackets) && (
         <div className="sticky bottom-4 mt-6 z-30">
           <button
             onClick={() => ifAuthed(() => dispatch({ type: 'START_LIVE' }))}
@@ -153,14 +208,15 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
  * division; bracket events need a generated draw; coming-soon types
  * never enter the live phase from this screen.
  */
-function canGoLive(engine, divisions, bracket) {
-  if (engine === 'roundRobin') {
-    return divisions.length > 0 && divisions.every(d => d.locked)
-  }
-  if (engine === 'singleElim' || engine === 'doubleElim') {
-    return !!bracket?.locked && (bracket?.matches?.length || 0) > 0
-  }
-  return false
+function canGoLive(engine, divisions, brackets) {
+  // The Live screen needs at least one locked draw of any kind. Mixed
+  // events (e.g. one round-robin + one bracket) are fine to start as
+  // long as something has play queued up.
+  const hasLockedDivision = divisions.length > 0 && divisions.some(d => d.locked)
+  const hasLockedBracket =
+    brackets && brackets.length > 0 && brackets.some(b => b.locked && (b.matches?.length || 0) > 0)
+  if (engine === 'comingSoon') return false
+  return hasLockedDivision || hasLockedBracket
 }
 
 /**

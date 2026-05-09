@@ -62,8 +62,8 @@ export const initialState = {
     // Legacy field, written by older clients. Kept for migration only.
     date: '',
   },
-  divisions: [],   // round-robin / feed-in
-  bracket: null,   // single-elim / double-elim — populated when locked
+  divisions: [],   // round-robin draws
+  brackets: [],    // single/double-elim draws (multiple per event supported)
 }
 
 /**
@@ -104,10 +104,22 @@ function migrate(state) {
       },
     }
   }
-  // Bracket events need a `bracket` field; round-robin events leave
-  // it null. Just normalize the field's presence.
-  if (!('bracket' in next)) {
-    next = { ...next, bracket: null }
+  // Bracket events used to store a single `bracket` field. Lift it
+  // into the `brackets` array so the rest of the app can assume
+  // many-per-event from now on.
+  if (!Array.isArray(next.brackets)) {
+    if (next.bracket && (next.bracket.entrants?.length || next.bracket.matches?.length)) {
+      const legacy = next.bracket
+      const seedName = next.tournament?.name || 'Bracket'
+      const { bracket: _drop, ...rest } = next
+      next = {
+        ...rest,
+        brackets: [{ id: 'br-legacy', name: seedName, ...legacy }],
+      }
+    } else {
+      const { bracket: _drop, ...rest } = next
+      next = { ...rest, brackets: [] }
+    }
   }
   // Home-screen migration: if state has no anchoring room code, the
   // user can't share or recover it from another device — route them
@@ -291,128 +303,123 @@ function reducer(state, action) {
       }
     }
 
-    case 'SET_BRACKET_MATCH_SCHEDULE': {
-      if (!state.bracket) return state
-      const { matchId, scheduledAt } = action.payload
-      return {
-        ...state,
-        bracket: {
-          ...state.bracket,
-          matches: state.bracket.matches.map(m =>
-            m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
-          ),
-        },
-      }
-    }
-
     case 'START_LIVE':
       return { ...state, phase: 'live' }
 
     case 'BACK_TO_SETUP':
       return { ...state, phase: 'setup' }
 
-    // ----- Bracket (single/double elimination) actions -----
+    // ----- Brackets (single/double elimination) -----
+    // All bracket actions target a specific bracket by id, since one
+    // event can now hold multiple brackets (Men's 4.0, Women's 3.5,
+    // Mixed Open, etc.). The helper `mapBracket` keeps the per-action
+    // bodies focused on their state shape.
 
-    case 'SET_BRACKET':
-      return { ...state, bracket: action.payload }
-
-    case 'CLEAR_BRACKET':
-      return { ...state, bracket: null }
-
-    case 'ADD_BRACKET_ENTRANT': {
-      if (!state.bracket) return state
-      const { p1, p2, isBye } = action.payload
-      const entrant = {
-        id: newId('ent'),
-        p1: p1 || '',
-        p2: p2 || '',
-        isBye: !!isBye,
-        seed: (state.bracket.entrants?.length || 0) + 1,
+    case 'ADD_BRACKET': {
+      const { kind, name } = action.payload
+      const bracket = {
+        id: newId('br'),
+        name: name || (kind === 'doubleElim' ? 'Double Elim Draw' : 'Single Elim Draw'),
+        type: kind === 'doubleElim' ? 'doubleElim' : 'singleElim',
+        variant: '',
+        rating: '',
+        entrants: [],
+        matches: [],
+        locked: false,
       }
+      return { ...state, brackets: [...(state.brackets || []), bracket] }
+    }
+
+    case 'UPDATE_BRACKET': {
+      const { id, patch } = action.payload
+      return mapBracket(state, id, b => ({ ...b, ...patch }))
+    }
+
+    case 'REMOVE_BRACKET': {
+      const { id } = action.payload
       return {
         ...state,
-        bracket: {
-          ...state.bracket,
-          entrants: [...(state.bracket.entrants || []), entrant],
-        },
+        brackets: (state.brackets || []).filter(b => b.id !== id),
       }
+    }
+
+    case 'ADD_BRACKET_ENTRANT': {
+      const { bracketId, p1, p2, isBye } = action.payload
+      return mapBracket(state, bracketId, b => {
+        const entrant = {
+          id: newId('ent'),
+          p1: p1 || '',
+          p2: p2 || '',
+          isBye: !!isBye,
+          seed: (b.entrants?.length || 0) + 1,
+        }
+        return { ...b, entrants: [...(b.entrants || []), entrant] }
+      })
     }
 
     case 'UPDATE_BRACKET_ENTRANT': {
-      if (!state.bracket) return state
-      const { id, patch } = action.payload
-      return {
-        ...state,
-        bracket: {
-          ...state.bracket,
-          entrants: state.bracket.entrants.map(e =>
-            e.id === id ? { ...e, ...patch } : e
-          ),
-        },
-      }
+      const { bracketId, id, patch } = action.payload
+      return mapBracket(state, bracketId, b => ({
+        ...b,
+        entrants: b.entrants.map(e => (e.id === id ? { ...e, ...patch } : e)),
+      }))
     }
 
     case 'REMOVE_BRACKET_ENTRANT': {
-      if (!state.bracket) return state
-      const { id } = action.payload
-      const filtered = (state.bracket.entrants || []).filter(e => e.id !== id)
-      // Re-seed sequentially so seeds stay 1..N with no gaps.
-      const reseeded = filtered.map((e, i) => ({ ...e, seed: i + 1 }))
-      return {
-        ...state,
-        bracket: { ...state.bracket, entrants: reseeded },
-      }
+      const { bracketId, id } = action.payload
+      return mapBracket(state, bracketId, b => {
+        const filtered = (b.entrants || []).filter(e => e.id !== id)
+        const reseeded = filtered.map((e, i) => ({ ...e, seed: i + 1 }))
+        return { ...b, entrants: reseeded }
+      })
     }
 
     case 'REORDER_BRACKET_ENTRANTS': {
-      if (!state.bracket) return state
-      const { order } = action.payload // array of entrant ids
-      const byId = Object.fromEntries(state.bracket.entrants.map(e => [e.id, e]))
-      const reordered = order
-        .map(id => byId[id])
-        .filter(Boolean)
-        .map((e, i) => ({ ...e, seed: i + 1 }))
-      return {
-        ...state,
-        bracket: { ...state.bracket, entrants: reordered },
-      }
+      const { bracketId, order } = action.payload
+      return mapBracket(state, bracketId, b => {
+        const byId = Object.fromEntries(b.entrants.map(e => [e.id, e]))
+        const reordered = order
+          .map(id => byId[id])
+          .filter(Boolean)
+          .map((e, i) => ({ ...e, seed: i + 1 }))
+        return { ...b, entrants: reordered }
+      })
     }
 
     case 'RECORD_BRACKET_SCORE': {
-      if (!state.bracket) return state
-      const { matchId, scoreA, scoreB } = action.payload
+      const { bracketId, matchId, scoreA, scoreB } = action.payload
       const winnerSlot = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
-      // Clone the matches array so propagation can mutate without
-      // touching the previous state. Walkover propagation cascades
-      // any newly-resolvable bye chains downstream — important for
-      // double-elim where a bye-side WB R1 walkover only resolves the
-      // matching LB R1 slot once the OTHER WB R1 match completes.
-      const nextMatches = state.bracket.matches.map(m =>
-        m.id === matchId
-          ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
-          : { ...m }
-      )
-      applyWalkoverPropagation(nextMatches)
-      return {
-        ...state,
-        bracket: { ...state.bracket, matches: nextMatches },
-      }
+      return mapBracket(state, bracketId, b => {
+        const nextMatches = b.matches.map(m =>
+          m.id === matchId
+            ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
+            : { ...m }
+        )
+        applyWalkoverPropagation(nextMatches)
+        return { ...b, matches: nextMatches }
+      })
     }
 
     case 'CLEAR_BRACKET_SCORE': {
-      if (!state.bracket) return state
-      const { matchId } = action.payload
-      return {
-        ...state,
-        bracket: {
-          ...state.bracket,
-          matches: state.bracket.matches.map(m =>
-            m.id === matchId
-              ? { ...m, scoreA: null, scoreB: null, completed: false, winnerSlot: null }
-              : m
-          ),
-        },
-      }
+      const { bracketId, matchId } = action.payload
+      return mapBracket(state, bracketId, b => ({
+        ...b,
+        matches: b.matches.map(m =>
+          m.id === matchId
+            ? { ...m, scoreA: null, scoreB: null, completed: false, winnerSlot: null }
+            : m
+        ),
+      }))
+    }
+
+    case 'SET_BRACKET_MATCH_SCHEDULE': {
+      const { bracketId, matchId, scheduledAt } = action.payload
+      return mapBracket(state, bracketId, b => ({
+        ...b,
+        matches: b.matches.map(m =>
+          m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
+        ),
+      }))
     }
 
     case 'GO_HOME':
@@ -427,16 +434,47 @@ function reducer(state, action) {
       // The picker passes type/variant/rating/dates as part of the
       // payload — none are required, but supplying them up-front
       // means the Setup screen lands in the right configuration.
+      //
+      // For bracket-type events we auto-create the first bracket so
+      // the Setup page has somewhere to add entrants right away;
+      // additional brackets can be added from the Setup screen.
       const code = action.payload?.code || generateRoomCode()
       const meta = action.payload?.meta || {}
+      const tournament = {
+        ...initialState.tournament,
+        ...meta,
+        roomCode: code,
+      }
+      const brackets = []
+      const t = tournament.type
+      if (t === 'singlesSingleElim' || t === 'doublesSingleElim') {
+        brackets.push({
+          id: newId('br'),
+          name: tournament.name || 'Main draw',
+          type: 'singleElim',
+          variant: tournament.variant || '',
+          rating: tournament.rating || '',
+          entrants: [],
+          matches: [],
+          locked: false,
+        })
+      } else if (t === 'singlesDoubleElim' || t === 'doublesDoubleElim') {
+        brackets.push({
+          id: newId('br'),
+          name: tournament.name || 'Main draw',
+          type: 'doubleElim',
+          variant: tournament.variant || '',
+          rating: tournament.rating || '',
+          entrants: [],
+          matches: [],
+          locked: false,
+        })
+      }
       return {
         ...initialState,
         phase: 'setup',
-        tournament: {
-          ...initialState.tournament,
-          ...meta,
-          roomCode: code,
-        },
+        tournament,
+        brackets,
       }
     }
 
@@ -474,6 +512,21 @@ function reducer(state, action) {
 
     default:
       return state
+  }
+}
+
+/**
+ * Bracket-action helper: replace one bracket-by-id in state.brackets
+ * with the result of `fn(bracket)`. Bracket reducers used to read
+ * `state.bracket` directly; once the model went many-per-event each
+ * action needs to find the right bracket first, and this keeps the
+ * per-action logic focused on the state shape rather than the lookup.
+ */
+function mapBracket(state, bracketId, fn) {
+  if (!state.brackets) return state
+  return {
+    ...state,
+    brackets: state.brackets.map(b => (b.id === bracketId ? fn(b) : b)),
   }
 }
 

@@ -100,10 +100,14 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
       ) : (
         <>
           <DrawTabs tabs={tabs} activeId={active.id} onSelect={setActiveId} />
-          {active.kind === 'roundRobin' ? (
+          {active.kind === 'roundRobin' || active.kind === 'feedIn' ? (
             <DivisionPanel
               division={active.draw}
-              passes={tournament.passes}
+              passes={
+                active.kind === 'feedIn'
+                  ? active.draw.passes || [{ winningScore: 7 }]
+                  : [{ winningScore: 7 }]
+              }
               dispatch={dispatch}
               ifAuthed={ifAuthed}
               proAuthed={proAuthed}
@@ -151,9 +155,11 @@ function DrawTabs({ tabs, activeId, onSelect }) {
           const kindLabel =
             t.kind === 'roundRobin'
               ? 'Round Robin'
-              : t.kind === 'doubleElim'
-                ? 'Double Elim'
-                : 'Single Elim'
+              : t.kind === 'feedIn'
+                ? 'Feed-In'
+                : t.kind === 'doubleElim'
+                  ? 'Double Elim'
+                  : 'Single Elim'
           return (
             <button
               key={t.id}

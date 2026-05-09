@@ -153,7 +153,9 @@ function DivisionHeading({ division }) {
       ? 'Double Elimination'
       : division.kind === 'singleElim'
         ? 'Single Elimination'
-        : 'Round Robin'
+        : division.kind === 'feedIn'
+          ? 'Feed-In'
+          : 'Round Robin'
   const subtitle = [variant, rating, entrants, format]
     .filter(Boolean)
     .join(' · ')

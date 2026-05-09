@@ -24,9 +24,7 @@ export default function App() {
   if (state.phase === 'home') {
     const hasDraft =
       !state.tournament.roomCode &&
-      ((state.divisions?.length ?? 0) > 0 ||
-        Boolean(state.tournament.name) ||
-        (state.tournament.passes?.length ?? 1) > 1)
+      ((state.divisions?.length ?? 0) > 0 || Boolean(state.tournament.name))
     content = (
       <Home
         draft={hasDraft ? state : null}

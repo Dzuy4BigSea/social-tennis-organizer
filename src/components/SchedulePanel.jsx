@@ -33,7 +33,7 @@ export default function SchedulePanel({ state, dispatch, ifAuthed }) {
               {kindLabel(d.kind)}
             </span>
           </div>
-          {d.kind === 'roundRobin' ? (
+          {d.kind === 'roundRobin' || d.kind === 'feedIn' ? (
             <RoundRobinDivisionSchedule
               division={d}
               dispatch={dispatch}
@@ -55,6 +55,7 @@ export default function SchedulePanel({ state, dispatch, ifAuthed }) {
 function kindLabel(kind) {
   if (kind === 'doubleElim') return 'Double Elim'
   if (kind === 'singleElim') return 'Single Elim'
+  if (kind === 'feedIn') return 'Feed-In'
   return 'Round Robin'
 }
 

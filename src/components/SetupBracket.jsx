@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import ScoringEditor from './ScoringEditor.jsx'
 import {
   DndContext,
   PointerSensor,
@@ -264,6 +265,19 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
           </button>
         </>
       )}
+
+      <ScoringEditor
+        scoring={bracket.scoring}
+        locked={locked}
+        onChange={(scoring) =>
+          ifAuthed(() =>
+            dispatch({
+              type: 'UPDATE_DIVISION',
+              payload: { id: bracket.id, patch: { scoring } },
+            })
+          )
+        }
+      />
     </section>
   )
 }

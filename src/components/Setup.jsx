@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { generateRoomCode, setRoomCodeInURL, getStoredPin } from '../utils/share.js'
 import PinGate, { PinSetup } from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
+import Brand from './Brand.jsx'
 
 export default function Setup({ state, dispatch, saveStatus }) {
   const { tournament, divisions } = state
@@ -58,8 +59,8 @@ export default function Setup({ state, dispatch, saveStatus }) {
         onFixPin={() => setShowPinGate(true)}
       />
 
-      <section className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
-        <h2 className="font-bold text-tennis-green mb-3">Tournament details</h2>
+      <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
+        <h2 className="font-display text-xl font-bold text-vinoy-green mb-3">Tournament details</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label className="block">
             <span className="text-xs text-gray-600">Name</span>
@@ -115,7 +116,7 @@ export default function Setup({ state, dispatch, saveStatus }) {
 
       <section>
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-tennis-green">Divisions</h2>
+          <h2 className="font-display text-xl font-bold text-vinoy-green">Divisions</h2>
           <button
             onClick={() =>
               ifAuthed(() => dispatch({ type: 'ADD_DIVISION', payload: { name: '' } }))
@@ -254,28 +255,29 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onNewTournament, s
 
   return (
     <header className="mb-5">
-      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
-        <h1 className="text-2xl font-bold text-tennis-green">Feed-In Tournament</h1>
+      <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
+        <Brand subtitle="Feed-In Tournament" />
         <div className="flex items-center gap-2 flex-wrap">
           <SaveStatus status={saveStatus} hasRoomCode={Boolean(roomCode)} onFix={onFixPin} />
           <button
             onClick={onNewTournament}
-            className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"
+            className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"
             title="Clear this device and start a new tournament"
           >
             New tournament
           </button>
           <button
             onClick={onSetPin}
-            className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"
+            className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"
             title="Set or change pro PIN"
           >
             {tournament.pinHash ? 'Change PIN' : 'Set PIN'}
           </button>
         </div>
       </div>
+      <div className="vinoy-rule mb-4" />
 
-      <div className="bg-white rounded-2xl border border-gray-200 p-3 flex items-center gap-3">
+      <div className="bg-white rounded-2xl border border-vinoy-border p-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="text-xs text-gray-500">Room code (share with iPads)</div>
           <div className="font-mono text-2xl tracking-wider text-tennis-green truncate">
@@ -308,7 +310,7 @@ function DivisionCard({ division, dispatch, ifAuthed }) {
   const canLock = pairs.length >= 2
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200">
+    <div className="bg-white rounded-2xl border border-vinoy-border shadow-sm">
       <div className="p-4 flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setExpanded((e) => !e)}

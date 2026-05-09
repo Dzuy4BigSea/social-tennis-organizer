@@ -18,10 +18,10 @@ export default function StandingsGrid({ division, passes }) {
     .sort((a, b) => b.wins - a.wins || b.total - a.total)
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
-        <h3 className="font-bold text-tennis-green">Standings</h3>
-        <span className="text-xs text-gray-500">
+    <div className="bg-white rounded-2xl border border-vinoy-border overflow-hidden shadow-sm">
+      <div className="px-4 py-3 border-b border-vinoy-border flex items-center justify-between flex-wrap gap-2">
+        <h3 className="font-display text-lg font-bold text-vinoy-green">Standings</h3>
+        <span className="text-xs text-vinoy-ink/60">
           {passList.length === 1
             ? `first to ${passList[0].winningScore}`
             : passList

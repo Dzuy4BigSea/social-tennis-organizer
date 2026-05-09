@@ -7,6 +7,7 @@ import {
 import { resolveSlot, entrantLabel } from '../utils/bracket.js'
 import { formatMatchTime, formatTimeOnly } from '../utils/format.js'
 import { buildStandings } from '../utils/schedule.js'
+import OrnamentalRule from './OrnamentalRule.jsx'
 
 /**
  * Print-friendly rendering of the active event. Lives behind a small
@@ -86,7 +87,7 @@ function PrintHeader({ state }) {
   const evt = getEventType(t.type)
   const logoUrl = `${import.meta.env.BASE_URL}vinoy-logo.png`
   return (
-    <header className="mb-6 pb-3 border-b-2 border-vinoy-green">
+    <header className="mb-6">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div className="flex items-center gap-3">
           <img src={logoUrl} alt="Vinoy crest" className="h-14 w-auto" />
@@ -132,6 +133,7 @@ function PrintHeader({ state }) {
           )}
         </div>
       </div>
+      <OrnamentalRule className="mt-3" />
     </header>
   )
 }

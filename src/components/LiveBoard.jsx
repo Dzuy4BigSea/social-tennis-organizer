@@ -5,6 +5,7 @@ import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import LiveBracket from './LiveBracket.jsx'
 import ComingSoon from './ComingSoon.jsx'
+import OrnamentalRule from './OrnamentalRule.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
 import { getEventType } from '../utils/eventTypes.js'
@@ -95,7 +96,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
             Room {tournament.roomCode}
           </p>
         )}
-        <div className="vinoy-rule mt-3" />
+        <OrnamentalRule className="mt-3" />
       </header>
 
       {tabs.length === 0 ? (

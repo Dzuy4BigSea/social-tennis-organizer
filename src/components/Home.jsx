@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import Brand from './Brand.jsx'
 import NewEventDialog from './NewEventDialog.jsx'
+import OrnamentalRule from './OrnamentalRule.jsx'
 import { getRecentRooms, removeRecentRoom } from '../utils/share.js'
 import { getEventType, getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
@@ -54,7 +55,7 @@ export default function Home({
         <div className="inline-flex flex-col items-center">
           <Brand />
         </div>
-        <div className="vinoy-rule mt-4 max-w-sm mx-auto" />
+        <OrnamentalRule className="mt-4 max-w-sm mx-auto" />
       </header>
 
       <section className="bg-white rounded-2xl border border-vinoy-border shadow-sm p-6 mb-4 text-center">

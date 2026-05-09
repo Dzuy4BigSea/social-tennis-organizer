@@ -1,17 +1,20 @@
 import React, { useState } from 'react'
 import Brand from './Brand.jsx'
+import NewEventDialog from './NewEventDialog.jsx'
 import { getRecentRooms, removeRecentRoom } from '../utils/share.js'
+import { getEventType, getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 /**
  * Landing screen for /feedin/. Three jobs in priority order:
  *
- *   1. Big "Start a new tournament" CTA — the most common action a
- *      pro takes when they walk on court for a new event.
+ *   1. Big "New event" CTA — opens a two-step picker (type → metadata)
+ *      so a coach at the desk can spin up a tournament, league, or
+ *      social with the right shape from the start.
  *   2. "Continue draft" — surfaced only if the device has unsynced
  *      setup work without a room code. Without this we'd silently
- *      lose work that was started before any sharing happened.
- *   3. "Recent tournaments" + "Join by code" — reach an existing
- *      event on this device, or one a colleague is running on theirs.
+ *      lose work that pre-dates the always-room-code change.
+ *   3. "Recent events" + "Join by code" — reach an existing event on
+ *      this device, or one a colleague is running on theirs.
  */
 export default function Home({
   draft,
@@ -23,6 +26,7 @@ export default function Home({
   const [code, setCode] = useState('')
   const [joining, setJoining] = useState(false)
   const [joinErr, setJoinErr] = useState('')
+  const [showDialog, setShowDialog] = useState(false)
 
   async function handleJoin(target) {
     const c = (target || code).trim().toUpperCase()
@@ -31,7 +35,7 @@ export default function Home({
     setJoinErr('')
     const ok = await onJoinRoom(c)
     setJoining(false)
-    if (!ok) setJoinErr(`No tournament found with code ${c}`)
+    if (!ok) setJoinErr(`No event found with code ${c}`)
   }
 
   function handleRemoveRecent(c) {
@@ -39,28 +43,33 @@ export default function Home({
     setRecents(getRecentRooms())
   }
 
+  function handleCreate(meta) {
+    setShowDialog(false)
+    onStartNew(meta)
+  }
+
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
       <header className="text-center mb-8">
         <div className="inline-flex flex-col items-center">
-          <Brand subtitle="Feed-In Tournament" />
+          <Brand />
         </div>
         <div className="vinoy-rule mt-4 max-w-sm mx-auto" />
       </header>
 
       <section className="bg-white rounded-2xl border border-vinoy-border shadow-sm p-6 mb-4 text-center">
         <h2 className="font-display text-2xl font-bold text-vinoy-green mb-2">
-          Start a new tournament
+          New event
         </h2>
         <p className="text-sm text-vinoy-ink/70 mb-4 max-w-md mx-auto">
-          Set up divisions, enter pairs, and choose how many rounds to play.
-          Every tournament gets a shareable room code for the iPads at courtside.
+          Create a tournament, round robin, league, or social. Every event
+          gets a shareable code for the iPads at courtside.
         </p>
         <button
-          onClick={onStartNew}
+          onClick={() => setShowDialog(true)}
           className="px-8 py-3 rounded-xl bg-vinoy-green hover:bg-vinoy-greenDark text-white font-semibold text-base shadow-sm"
         >
-          New Tournament
+          + New event
         </button>
       </section>
 
@@ -86,12 +95,12 @@ export default function Home({
 
       <section className="bg-white rounded-2xl border border-vinoy-border shadow-sm p-4 mb-4">
         <h3 className="font-display text-lg font-bold text-vinoy-green mb-3">
-          Recent tournaments
+          Recent events
         </h3>
         {recents.length === 0 ? (
           <p className="text-sm text-vinoy-ink/60">
-            No tournaments visited yet on this device. They'll appear here
-            once you start or join one.
+            No events visited yet on this device. They'll appear here once
+            you start or join one.
           </p>
         ) : (
           <ul className="space-y-2">
@@ -102,21 +111,18 @@ export default function Home({
               >
                 <button
                   onClick={() => handleJoin(r.code)}
-                  className="flex-1 min-w-0 text-left px-3 py-2.5 flex items-center justify-between gap-3"
+                  className="flex-1 min-w-0 text-left px-3 py-2.5"
                 >
-                  <div className="min-w-0">
-                    <div className="font-semibold text-vinoy-ink truncate">
-                      {r.name || 'Untitled tournament'}
-                    </div>
-                    <div className="text-xs text-vinoy-ink/60 font-mono mt-0.5">
-                      Room {r.code}
-                      {r.date && ` · ${r.date}`}
-                      {r.lastVisited && ` · ${formatRelative(r.lastVisited)}`}
-                    </div>
+                  <div className="font-semibold text-vinoy-ink truncate">
+                    {r.name || 'Untitled event'}
                   </div>
-                  <span className="text-vinoy-green text-lg shrink-0" aria-hidden>
-                    →
-                  </span>
+                  <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                    <RecentBadges room={r} />
+                  </div>
+                  <div className="text-xs text-vinoy-ink/50 font-mono mt-1">
+                    Room {r.code}
+                    {r.lastVisited && ` · ${formatRelative(r.lastVisited)}`}
+                  </div>
                 </button>
                 <button
                   onClick={() => handleRemoveRecent(r.code)}
@@ -136,7 +142,7 @@ export default function Home({
           Join by code
         </h3>
         <p className="text-xs text-vinoy-ink/70 mb-3">
-          Enter the 6-character room code for an existing tournament.
+          Enter the 6-character room code for an existing event.
         </p>
         <form
           onSubmit={(e) => {
@@ -165,12 +171,62 @@ export default function Home({
             {joining ? 'Joining…' : 'Join'}
           </button>
         </form>
-        {joinErr && (
-          <p className="text-red-600 text-sm mt-2">{joinErr}</p>
-        )}
+        {joinErr && <p className="text-red-600 text-sm mt-2">{joinErr}</p>}
       </section>
+
+      {showDialog && (
+        <NewEventDialog
+          onCreate={handleCreate}
+          onClose={() => setShowDialog(false)}
+        />
+      )}
     </div>
   )
+}
+
+/**
+ * Compact horizontal badges that summarize an event entry: type,
+ * variant, rating, and date range. Skips fields that aren't set so
+ * older saves with no event metadata still render cleanly.
+ */
+function RecentBadges({ room }) {
+  const typeLabel = room.typeId ? getEventType(room.typeId).label : null
+  const variantLabel =
+    room.variantId && room.variantId !== 'all'
+      ? getVariant(room.variantId).label
+      : null
+  const ratingLabel = room.ratingId ? getRatingLabel(room.ratingId) : null
+  const dateLabel = formatDateRange(room)
+  const items = [typeLabel, variantLabel, ratingLabel, dateLabel].filter(Boolean)
+  if (items.length === 0) return null
+  return (
+    <>
+      {items.map((label, i) => (
+        <span
+          key={i}
+          className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-white border border-vinoy-border text-vinoy-ink/70"
+        >
+          {label}
+        </span>
+      ))}
+    </>
+  )
+}
+
+function formatDateRange(room) {
+  if (room.ongoing) return 'Ongoing'
+  if (room.startDate && room.endDate) {
+    return `${shortDate(room.startDate)}–${shortDate(room.endDate)}`
+  }
+  if (room.startDate) return shortDate(room.startDate)
+  return null
+}
+
+function shortDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso + 'T00:00:00')
+  if (isNaN(d)) return iso
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
 function draftSummary(state) {

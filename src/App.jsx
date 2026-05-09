@@ -4,10 +4,10 @@ import Setup from './components/Setup.jsx'
 import LiveBoard from './components/LiveBoard.jsx'
 
 export default function App() {
-  const { state, dispatch } = useTournament()
+  const { state, dispatch, saveStatus } = useTournament()
 
   if (state.phase === 'live') {
-    return <LiveBoard state={state} dispatch={dispatch} />
+    return <LiveBoard state={state} dispatch={dispatch} saveStatus={saveStatus} />
   }
-  return <Setup state={state} dispatch={dispatch} />
+  return <Setup state={state} dispatch={dispatch} saveStatus={saveStatus} />
 }

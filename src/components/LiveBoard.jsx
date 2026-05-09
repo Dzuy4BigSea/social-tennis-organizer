@@ -1,10 +1,11 @@
 import React, { useState, useMemo } from 'react'
 import StandingsGrid from './StandingsGrid.jsx'
 import PinGate from './PinGate.jsx'
+import SaveStatus from './SaveStatus.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
 
-export default function LiveBoard({ state, dispatch }) {
+export default function LiveBoard({ state, dispatch, saveStatus }) {
   const { tournament, divisions } = state
   const liveDivisions = divisions.filter(d => d.locked)
   const [activeId, setActiveId] = useState(liveDivisions[0]?.id ?? null)
@@ -44,7 +45,12 @@ export default function LiveBoard({ state, dispatch }) {
             </p>
           )}
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <SaveStatus
+            status={saveStatus}
+            hasRoomCode={Boolean(tournament.roomCode)}
+            onFix={() => setShowPinGate(true)}
+          />
           {!proAuthed && tournament.pinHash && (
             <button
               onClick={() => setShowPinGate(true)}

@@ -1,4 +1,4 @@
-import { useReducer, useEffect, useRef } from 'react'
+import { useReducer, useEffect, useRef, useState } from 'react'
 import {
   getRoomCodeFromURL,
   loadFromRoom,
@@ -244,6 +244,14 @@ export function useTournament() {
   const stateRef = useRef(state)
   stateRef.current = state
 
+  // dirtyRef: true while the local state has changes that haven't successfully
+  // synced to the server. Polling refuses to overwrite local state while this
+  // is true, which prevents a stale server snapshot from clobbering edits the
+  // user is in the middle of making (the bug where typing a name "flashed"
+  // and reset to empty).
+  const dirtyRef = useRef(false)
+  const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'forbidden'|'error'
+
   // On mount: if URL has a room code, hydrate from server.
   useEffect(() => {
     const code = getRoomCodeFromURL()
@@ -274,10 +282,20 @@ export function useTournament() {
     }
     const code = state.tournament.roomCode
     if (!code) return
+    dirtyRef.current = true
+    setSaveStatus('saving')
     clearTimeout(saveTimerRef.current)
     saveTimerRef.current = setTimeout(async () => {
       try {
-        await saveToRoom(code, state)
+        const res = await saveToRoom(code, stateRef.current)
+        if (res.ok) {
+          dirtyRef.current = false
+          setSaveStatus('saved')
+        } else if (res.status === 403) {
+          setSaveStatus('forbidden')
+        } else {
+          setSaveStatus('error')
+        }
       } finally {
         saveTimerRef.current = null
       }
@@ -293,6 +311,10 @@ export function useTournament() {
       // Don't poll while a debounced save is pending — we'd just race with our
       // own write and clobber unsaved local edits.
       if (saveTimerRef.current) return
+      // Don't overwrite local state while it has unsynced changes. Without
+      // this, a 403 (wrong PIN) save would silently fail and the next poll
+      // would replace the user's typing with the unmodified server snapshot.
+      if (dirtyRef.current) return
       const remote = await loadFromRoom(code)
       if (!remote) return
       const current = stateRef.current
@@ -311,5 +333,5 @@ export function useTournament() {
     return () => clearInterval(id)
   }, [state.tournament.roomCode])
 
-  return { state, dispatch }
+  return { state, dispatch, saveStatus }
 }

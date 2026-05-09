@@ -586,9 +586,16 @@ export function useTournament() {
     if (!code) return
     loadFromRoom(code).then(loaded => {
       if (loaded) {
+        // Same coercion as joinRoom — landing on a /feedin/#room=XXX
+        // URL means "open this event", not "show the home screen".
+        const nextPhase = loaded.phase === 'live' ? 'live' : 'setup'
         dispatch({
           type: 'LOAD_STATE',
-          payload: { ...loaded, tournament: { ...loaded.tournament, roomCode: code } },
+          payload: {
+            ...loaded,
+            phase: nextPhase,
+            tournament: { ...loaded.tournament, roomCode: code },
+          },
         })
         setRoomCodeInURL(code)
         trackRoomVisit(buildVisit(code, loaded))
@@ -611,6 +618,12 @@ export function useTournament() {
     }
     const code = state.tournament.roomCode
     if (!code) return
+    // `phase: 'home'` means the pro stepped away from this event on
+    // their device — it isn't a state change for the event itself.
+    // Pushing it to the server would overwrite the saved 'setup' or
+    // 'live' phase, and the next device joining the code would also
+    // land on Home (which looks like the join did nothing).
+    if (state.phase === 'home') return
     dirtyRef.current = true
     setSaveStatus('saving')
     clearTimeout(saveTimerRef.current)
@@ -676,9 +689,20 @@ export function useTournament() {
     const upper = code.toUpperCase()
     const loaded = await loadFromRoom(upper)
     if (!loaded) return false
+    // Joining always means the pro wants to engage with the event;
+    // landing them on Home would feel broken. Honor the saved 'live'
+    // phase when present (so other devices see the live board too)
+    // and otherwise default to 'setup'. Older rooms that accidentally
+    // saved phase='home' before the save guard landed get coerced
+    // into setup here.
+    const nextPhase = loaded.phase === 'live' ? 'live' : 'setup'
     dispatch({
       type: 'LOAD_STATE',
-      payload: { ...loaded, tournament: { ...loaded.tournament, roomCode: upper } },
+      payload: {
+        ...loaded,
+        phase: nextPhase,
+        tournament: { ...loaded.tournament, roomCode: upper },
+      },
     })
     setRoomCodeInURL(upper)
     trackRoomVisit(buildVisit(upper, loaded))

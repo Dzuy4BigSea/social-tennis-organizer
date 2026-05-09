@@ -71,7 +71,7 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
       {!tournament.pinHash && (
         <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-4 mb-4 text-sm">
           <p className="text-yellow-900">
-            <strong>No PIN set.</strong> Anyone with the room code can edit scores. Set a PIN so only the pros can score.
+            <strong>No PIN set.</strong> Anyone with the event code can edit scores. Set a PIN so only the pros can score.
           </p>
           <button
             onClick={() => setShowPinSetup(true)}
@@ -508,22 +508,22 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
 
       <div className="bg-white rounded-2xl border border-vinoy-border p-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">
-          <div className="text-xs text-gray-500">Room code (share with iPads)</div>
-          <div className="font-mono text-2xl tracking-wider text-tennis-green truncate">
+          <div className="text-xs text-vinoy-ink/60">Event code (share with iPads)</div>
+          <div className="font-mono text-2xl tracking-wider text-vinoy-green truncate">
             {roomCode || '—'}
           </div>
         </div>
         {!roomCode ? (
           <button
             onClick={onRoomCode}
-            className="px-4 py-2 rounded-xl bg-tennis-green text-white font-semibold"
+            className="px-4 py-2 rounded-xl bg-vinoy-green text-white font-semibold"
           >
-            Create Room
+            Generate code
           </button>
         ) : (
           <button
             onClick={() => navigator.clipboard?.writeText(shareUrl)}
-            className="px-3 py-2 rounded-xl border border-gray-300 text-sm"
+            className="px-3 py-2 rounded-xl border border-vinoy-border text-sm"
           >
             Copy link
           </button>

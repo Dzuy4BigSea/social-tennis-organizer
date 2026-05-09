@@ -9,7 +9,7 @@ import React from 'react'
 export default function SaveStatus({ status, onFix, hasRoomCode }) {
   if (!hasRoomCode) {
     return (
-      <Badge tone="muted">Local only · create a room to share</Badge>
+      <Badge tone="muted">Local only · create an event code to share</Badge>
     )
   }
 

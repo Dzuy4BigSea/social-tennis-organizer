@@ -7,6 +7,8 @@ import SetupBracket from './SetupBracket.jsx'
 import SchedulePanel from './SchedulePanel.jsx'
 import OrnamentalRule from './OrnamentalRule.jsx'
 import AddDivisionDialog from './AddDivisionDialog.jsx'
+import ScoringEditor from './ScoringEditor.jsx'
+import PassesEditor from './PassesEditor.jsx'
 import { getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }) {
@@ -58,7 +60,6 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         tournament={tournament}
         ifAuthed={ifAuthed}
         dispatch={dispatch}
-        anyLocked={anyLocked}
       />
 
       {!tournament.pinHash && (
@@ -94,8 +95,8 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         ) : (
           <div className="space-y-3 mb-4">
             {divisions.map(d =>
-              d.kind === 'roundRobin' ? (
-                <RoundRobinDivisionCard
+              d.kind === 'roundRobin' || d.kind === 'feedIn' ? (
+                <PairBasedDivisionCard
                   key={d.id}
                   division={d}
                   dispatch={dispatch}
@@ -155,12 +156,12 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
 }
 
 /**
- * Top card for the event itself: name, dates, times, ongoing flag,
- * and the round-count editor for round-robin divisions. Variant /
- * rating / format used to live here too — they've moved into the
- * Add Division dialog so each division can hold its own values.
+ * Top card for the event itself: name, dates, times, ongoing flag.
+ * Variant / rating / format / scoring used to live here too —
+ * they've moved into the per-division dialog so a single event can
+ * hold draws with different formats.
  */
-function EventDetailsCard({ tournament, ifAuthed, dispatch, anyLocked }) {
+function EventDetailsCard({ tournament, ifAuthed, dispatch }) {
   function set(patch) {
     ifAuthed(() => dispatch({ type: 'SET_TOURNAMENT', payload: patch }))
   }
@@ -238,102 +239,7 @@ function EventDetailsCard({ tournament, ifAuthed, dispatch, anyLocked }) {
           </div>
         )}
       </div>
-
-      <RoundsEditor
-        passes={tournament.passes}
-        locked={anyLocked}
-        onChange={(passes) =>
-          ifAuthed(() => dispatch({ type: 'SET_PASSES', payload: passes }))
-        }
-      />
     </section>
-  )
-}
-
-/**
- * Per-pass winning-score editor. Round-robin divisions read this
- * pass list when generating their schedule, so changes after a draw
- * is locked have no effect (the schedule's already baked).
- */
-function RoundsEditor({ passes, locked, onChange }) {
-  const list = passes && passes.length ? passes : [{ winningScore: 7 }]
-
-  function update(idx, ws) {
-    const next = list.map((p, i) =>
-      i === idx ? { ...p, winningScore: Math.max(1, parseInt(ws) || 1) } : p
-    )
-    onChange(next)
-  }
-  function add() {
-    onChange([...list, { winningScore: list[list.length - 1]?.winningScore || 7 }])
-  }
-  function remove(idx) {
-    if (list.length <= 1) return
-    onChange(list.filter((_, i) => i !== idx))
-  }
-
-  return (
-    <div className="mt-4 pt-4 border-t border-vinoy-border">
-      <div className="flex items-center justify-between mb-2">
-        <div>
-          <div className="text-sm font-semibold text-vinoy-ink/80">
-            Round-robin rounds
-          </div>
-          <div className="text-xs text-vinoy-ink/60">
-            New round-robin divisions use this pass list. Set a target
-            score per round.
-          </div>
-        </div>
-        {!locked && (
-          <button
-            type="button"
-            onClick={add}
-            className="px-3 py-1.5 rounded-lg border border-vinoy-green text-vinoy-green text-sm font-semibold"
-          >
-            + Round
-          </button>
-        )}
-      </div>
-      {locked && (
-        <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg px-3 py-2 mb-2">
-          A division has already been generated. Unlock it to change
-          the round count.
-        </p>
-      )}
-      <ol className="space-y-2">
-        {list.map((p, idx) => (
-          <li
-            key={idx}
-            className="flex items-center gap-3 bg-vinoy-cream rounded-xl px-3 py-2"
-          >
-            <span className="w-8 h-8 rounded-full bg-vinoy-green text-white flex items-center justify-center font-bold text-sm">
-              {idx + 1}
-            </span>
-            <span className="text-sm text-vinoy-ink/80 flex-1">First to</span>
-            <input
-              type="number"
-              min="1"
-              max="21"
-              value={p.winningScore}
-              disabled={locked}
-              onChange={(e) => update(idx, e.target.value)}
-              className="w-20 text-center text-lg font-bold border-2 border-vinoy-border rounded-lg px-2 py-1 focus:border-vinoy-green focus:outline-none disabled:bg-gray-100"
-            />
-            <span className="text-sm text-vinoy-ink/60">games</span>
-            {!locked && list.length > 1 && (
-              <button
-                type="button"
-                onClick={() => remove(idx)}
-                className="text-vinoy-ink/40 hover:text-red-600 px-1"
-                title="Remove round"
-              >
-                ✕
-              </button>
-            )}
-          </li>
-        ))}
-      </ol>
-    </div>
   )
 }
 
@@ -402,12 +308,14 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
 }
 
 /**
- * Setup card for one round-robin division. Variant / rating /
- * entrant-kind chips up top — read-only labels here since they were
- * picked in the Add Division dialog and changing them after the fact
- * usually means the wrong division was added.
+ * Setup card for any pair-based division — round-robin or feed-in.
+ * They share the same pair-list UI; they only differ in scoring
+ * configuration (PassesEditor vs ScoringEditor) and what the
+ * generator builds at lock time. Variant / rating / entrant-kind
+ * chips up top are read-only labels since changing them after a
+ * division has been added usually means the wrong one was added.
  */
-function RoundRobinDivisionCard({ division, dispatch, ifAuthed }) {
+function PairBasedDivisionCard({ division, dispatch, ifAuthed }) {
   const { id, name, courtLabel, pairs, locked } = division
   const [expanded, setExpanded] = useState(true)
   const canLock = pairs.length >= 2
@@ -511,6 +419,33 @@ function RoundRobinDivisionCard({ division, dispatch, ifAuthed }) {
             ifAuthed={ifAuthed}
             isDoubles={isDoubles}
           />
+          {division.kind === 'feedIn' ? (
+            <PassesEditor
+              passes={division.passes}
+              locked={locked}
+              onChange={(passes) =>
+                ifAuthed(() =>
+                  dispatch({
+                    type: 'UPDATE_DIVISION',
+                    payload: { id, patch: { passes } },
+                  })
+                )
+              }
+            />
+          ) : (
+            <ScoringEditor
+              scoring={division.scoring}
+              locked={locked}
+              onChange={(scoring) =>
+                ifAuthed(() =>
+                  dispatch({
+                    type: 'UPDATE_DIVISION',
+                    payload: { id, patch: { scoring } },
+                  })
+                )
+              }
+            />
+          )}
         </div>
       )}
     </div>

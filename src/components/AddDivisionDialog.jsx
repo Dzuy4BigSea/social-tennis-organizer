@@ -6,9 +6,26 @@ import {
 } from '../utils/eventTypes.js'
 
 const KINDS = [
-  { id: 'roundRobin', label: 'Round Robin', blurb: 'Everyone plays everyone in their division.' },
-  { id: 'singleElim', label: 'Single Elim', blurb: 'One loss and out. Classic bracket.' },
-  { id: 'doubleElim', label: 'Double Elim', blurb: "Loser's bracket gives a second life." },
+  {
+    id: 'roundRobin',
+    label: 'Round Robin',
+    blurb: 'Each pair plays each other once with standard tennis scoring.',
+  },
+  {
+    id: 'feedIn',
+    label: 'Feed-In',
+    blurb: 'Multiple round-robin passes; each pass plays to a target score.',
+  },
+  {
+    id: 'singleElim',
+    label: 'Single Elim',
+    blurb: 'One loss and out. Classic bracket.',
+  },
+  {
+    id: 'doubleElim',
+    label: 'Double Elim',
+    blurb: "Loser's bracket gives a second life.",
+  },
 ]
 
 const ENTRANT_KINDS = [
@@ -111,7 +128,7 @@ export default function AddDivisionDialog({ defaults, onCreate, onClose }) {
 
           <div className="border-t border-vinoy-border pt-4">
             <div className="text-xs font-semibold text-vinoy-ink/70 mb-2">Draw format</div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {KINDS.map(k => {
                 const active = form.kind === k.id
                 return (

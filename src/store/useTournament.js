@@ -63,12 +63,8 @@ export const initialState = {
     startTime: '',           // HH:MM (24h); first ball
     endTime: '',             // HH:MM (24h); optional
     ongoing: false,          // weekly/recurring play; dates ignored
-    // Default winning-score for newly-added round-robin divisions.
-    // Each RR division can override its own passes if the pro wants
-    // a different cap.
-    passes: [{ winningScore: 7 }],
     // Per-division settings used to pre-fill the Add Division dialog.
-    // Divisions stored in `divisions[]` carry their own copies.
+    // Each division stores its own kind/passes/scoring on itself.
     defaults: { variant: 'all', rating: '', entrantKind: 'singles' },
     // Sharing/auth
     roomCode: null,
@@ -159,6 +155,63 @@ function migrate(state) {
     const { bracket: _b, ...rest } = next
     next = rest
   }
+  // Per-division passes + scoring config. Round-robin used to share
+  // one pass list at the event level; multi-pass play is now the
+  // dedicated 'feedIn' kind, while plain 'roundRobin' uses standard
+  // tennis scoring (sets/games). Migrate based on the old event-level
+  // tournament.passes — if it had more than one entry, that division
+  // was effectively running feed-in.
+  const eventPasses = Array.isArray(next.tournament.passes)
+    ? next.tournament.passes
+    : null
+  const needsScoringMigration = (next.divisions || []).some(
+    d => !d.scoring && (d.kind === 'roundRobin' || d.kind === 'singleElim' || d.kind === 'doubleElim' || !d.kind)
+  ) || (next.divisions || []).some(d => d.kind === 'roundRobin' && !d.passes)
+  if (needsScoringMigration) {
+    next = {
+      ...next,
+      divisions: next.divisions.map(d => {
+        if (d.kind === 'roundRobin') {
+          // Multi-pass round-robin from the old model becomes feedIn;
+          // single-pass becomes plain roundRobin with standard scoring.
+          const inherited = eventPasses && eventPasses.length > 0
+            ? eventPasses
+            : [{ winningScore: 7 }]
+          if (inherited.length > 1) {
+            return {
+              ...d,
+              kind: 'feedIn',
+              passes: d.passes || inherited,
+              scoring: d.scoring || null,
+            }
+          }
+          return {
+            ...d,
+            passes: undefined,
+            scoring: d.scoring || { ...STANDARD_SCORING },
+          }
+        }
+        if (d.kind === 'feedIn') {
+          return {
+            ...d,
+            passes: d.passes || eventPasses || DEFAULT_FEED_IN_PASSES,
+            scoring: null,
+          }
+        }
+        // singleElim / doubleElim get standard scoring by default.
+        return {
+          ...d,
+          scoring: d.scoring || { ...STANDARD_SCORING },
+        }
+      }),
+    }
+  }
+  // tournament.passes is no longer event-level. Strip it but leave
+  // the rest of tournament intact so we don't disturb anything else.
+  if ('passes' in (next.tournament || {})) {
+    const { passes: _p, ...trest } = next.tournament
+    next = { ...next, tournament: trest }
+  }
   // Home-screen migration: if state has no anchoring room code, the
   // user can't share or recover it from another device — route them
   // to the home screen so they can either continue the draft or pick
@@ -194,6 +247,7 @@ function reducer(state, action) {
       } = action.payload || {}
       const defaults = state.tournament?.defaults || {}
       const isBracket = kind === 'singleElim' || kind === 'doubleElim'
+      const isFeedIn = kind === 'feedIn'
       const division = {
         id: newId('div'),
         name: name || autoName({ kind, variant, rating, entrantKind }, defaults),
@@ -203,6 +257,10 @@ function reducer(state, action) {
         rating: rating ?? defaults.rating ?? '',
         entrantKind: entrantKind || defaults.entrantKind || 'singles',
         locked: false,
+        // Feed-in stores per-pass target scores; everything else uses
+        // standard tennis scoring (sets/games/tiebreak rules).
+        passes: isFeedIn ? [...DEFAULT_FEED_IN_PASSES] : undefined,
+        scoring: isFeedIn ? null : { ...STANDARD_SCORING },
         ...(isBracket
           ? { entrants: [], matches: [], size: 0, rounds: 0 }
           : { pairs: [], matches: [] }),
@@ -298,13 +356,18 @@ function reducer(state, action) {
 
     case 'LOCK_DIVISION': {
       const { divisionId } = action.payload
-      const passCount = state.tournament.passes?.length || 1
       return {
         ...state,
         divisions: state.divisions.map(d => {
           if (d.id !== divisionId || d.locked) return d
           if (d.kind === 'roundRobin') {
             if ((d.pairs || []).length < 2) return d
+            const { matches } = generateSchedule(d.pairs.length, 1)
+            return { ...d, matches, locked: true }
+          }
+          if (d.kind === 'feedIn') {
+            if ((d.pairs || []).length < 2) return d
+            const passCount = (d.passes || DEFAULT_FEED_IN_PASSES).length || 1
             const { matches } = generateSchedule(d.pairs.length, passCount)
             return { ...d, matches, locked: true }
           }
@@ -569,13 +632,6 @@ function reducer(state, action) {
     case 'LOAD_STATE':
       return migrate({ ...initialState, ...action.payload })
 
-    case 'SET_PASSES': {
-      const passes = (action.payload || [])
-        .map(p => ({ winningScore: Math.max(1, p?.winningScore | 0 || 7) }))
-      const safe = passes.length > 0 ? passes : [{ winningScore: 7 }]
-      return { ...state, tournament: { ...state.tournament, passes: safe } }
-    }
-
     case 'RESET':
       return { ...initialState }
 
@@ -583,6 +639,34 @@ function reducer(state, action) {
       return state
   }
 }
+
+/**
+ * Default scoring config used by every non-feed-in division. The
+ * "standard scoring" mental model: best-of-3 sets, six games to win
+ * a set, set tiebreak at 6-6, ad scoring, full third set when
+ * needed. Pros override individual fields per-division when an event
+ * uses a non-default format (pro set, match tiebreak in lieu of
+ * third, no-ad, etc.).
+ */
+export const STANDARD_SCORING = Object.freeze({
+  setsToWin: 2,
+  gamesPerSet: 6,
+  tiebreakAtGames: 6,
+  adScoring: true,
+  // 'fullSet' = play out the deciding set normally
+  // 'matchTiebreak' = play a 10-point match tiebreak instead
+  finalSetMode: 'fullSet',
+  finalSetTiebreakTo: 10,
+})
+
+/**
+ * Default pass list for newly-added feed-in divisions: two rounds,
+ * first to 7. Pros add or remove passes per division.
+ */
+export const DEFAULT_FEED_IN_PASSES = [
+  { winningScore: 7 },
+  { winningScore: 7 },
+]
 
 /**
  * Build a default name for a freshly-added division when the pro
@@ -600,6 +684,7 @@ function autoName({ kind, variant, rating, entrantKind }, defaults) {
   const formatText =
     k === 'doubleElim' ? 'Double Elim'
       : k === 'singleElim' ? 'Single Elim'
+      : k === 'feedIn' ? 'Feed-In'
       : 'Round Robin'
   const kindText = ek === 'doubles' ? 'Doubles' : 'Singles'
   return [variantText, ratingText, kindText, formatText]

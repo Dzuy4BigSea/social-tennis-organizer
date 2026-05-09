@@ -1,8 +1,9 @@
 import React, { useState } from 'react'
 import { generateRoomCode, setRoomCodeInURL, getStoredPin } from '../utils/share.js'
 import PinGate, { PinSetup } from './PinGate.jsx'
+import SaveStatus from './SaveStatus.jsx'
 
-export default function Setup({ state, dispatch }) {
+export default function Setup({ state, dispatch, saveStatus }) {
   const { tournament, divisions } = state
   const [showPinSetup, setShowPinSetup] = useState(false)
   const [showPinGate, setShowPinGate] = useState(false)
@@ -36,6 +37,8 @@ export default function Setup({ state, dispatch }) {
         roomCode={tournament.roomCode}
         onRoomCode={ensureRoomCode}
         onSetPin={() => setShowPinSetup(true)}
+        saveStatus={saveStatus}
+        onFixPin={() => setShowPinGate(true)}
       />
 
       <section className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
@@ -159,22 +162,25 @@ export default function Setup({ state, dispatch }) {
   )
 }
 
-function Header({ tournament, roomCode, onRoomCode, onSetPin }) {
+function Header({ tournament, roomCode, onRoomCode, onSetPin, saveStatus, onFixPin }) {
   const shareUrl = roomCode
     ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
     : ''
 
   return (
     <header className="mb-5">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <h1 className="text-2xl font-bold text-tennis-green">Feed-In Tournament</h1>
-        <button
-          onClick={onSetPin}
-          className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"
-          title="Set or change pro PIN"
-        >
-          {tournament.pinHash ? 'Change PIN' : 'Set PIN'}
-        </button>
+        <div className="flex items-center gap-2">
+          <SaveStatus status={saveStatus} hasRoomCode={Boolean(roomCode)} onFix={onFixPin} />
+          <button
+            onClick={onSetPin}
+            className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"
+            title="Set or change pro PIN"
+          >
+            {tournament.pinHash ? 'Change PIN' : 'Set PIN'}
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-200 p-3 flex items-center gap-3">

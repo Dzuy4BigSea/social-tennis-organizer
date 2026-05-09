@@ -28,6 +28,22 @@ export default function Setup({ state, dispatch, saveStatus }) {
     else setShowPinGate(true)
   }
 
+  function handleNewTournament() {
+    const hasWork = divisions.length > 0 || tournament.roomCode || tournament.name
+    if (
+      hasWork &&
+      !confirm(
+        'Start a new tournament? This clears the current setup from this device. The existing room (if any) stays on the server and can be reopened with its link.'
+      )
+    ) {
+      return
+    }
+    dispatch({ type: 'RESET' })
+    if (window.location.hash) {
+      history.replaceState(null, '', window.location.pathname)
+    }
+  }
+
   const allLocked = divisions.length > 0 && divisions.every(d => d.locked)
 
   return (
@@ -37,6 +53,7 @@ export default function Setup({ state, dispatch, saveStatus }) {
         roomCode={tournament.roomCode}
         onRoomCode={ensureRoomCode}
         onSetPin={() => setShowPinSetup(true)}
+        onNewTournament={handleNewTournament}
         saveStatus={saveStatus}
         onFixPin={() => setShowPinGate(true)}
       />
@@ -230,7 +247,7 @@ function RoundsEditor({ passes, locked, onChange }) {
   )
 }
 
-function Header({ tournament, roomCode, onRoomCode, onSetPin, saveStatus, onFixPin }) {
+function Header({ tournament, roomCode, onRoomCode, onSetPin, onNewTournament, saveStatus, onFixPin }) {
   const shareUrl = roomCode
     ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
     : ''
@@ -239,8 +256,15 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, saveStatus, onFixP
     <header className="mb-5">
       <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
         <h1 className="text-2xl font-bold text-tennis-green">Feed-In Tournament</h1>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <SaveStatus status={saveStatus} hasRoomCode={Boolean(roomCode)} onFix={onFixPin} />
+          <button
+            onClick={onNewTournament}
+            className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"
+            title="Clear this device and start a new tournament"
+          >
+            New tournament
+          </button>
           <button
             onClick={onSetPin}
             className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"

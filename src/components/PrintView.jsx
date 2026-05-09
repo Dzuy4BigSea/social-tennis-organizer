@@ -8,6 +8,7 @@ import { resolveSlot, entrantLabel } from '../utils/bracket.js'
 import { formatMatchTime, formatTimeOnly } from '../utils/format.js'
 import { buildStandings } from '../utils/schedule.js'
 import OrnamentalRule from './OrnamentalRule.jsx'
+import SiteFooter from './SiteFooter.jsx'
 
 /**
  * Print-friendly rendering of the active event. Lives behind a small
@@ -77,6 +78,8 @@ export default function PrintView({ state, onClose }) {
               : 'No locked divisions or brackets to print yet — head back to Setup and lock a draw first.'}
           </p>
         )}
+
+        <SiteFooter className="mt-8 print:mt-4" />
       </div>
     </div>
   )

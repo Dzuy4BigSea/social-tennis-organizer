@@ -1,20 +1,13 @@
 import React from 'react'
 import { useTournament } from './store/useTournament.js'
 import Setup from './components/Setup.jsx'
-import Roster from './components/Roster.jsx'
-import CourtBoard from './components/CourtBoard.jsx'
+import LiveBoard from './components/LiveBoard.jsx'
 
 export default function App() {
   const { state, dispatch } = useTournament()
 
-  switch (state.phase) {
-    case 'setup':
-      return <Setup state={state} dispatch={dispatch} />
-    case 'roster':
-      return <Roster state={state} dispatch={dispatch} />
-    case 'round':
-      return <CourtBoard state={state} dispatch={dispatch} />
-    default:
-      return <Setup state={state} dispatch={dispatch} />
+  if (state.phase === 'live') {
+    return <LiveBoard state={state} dispatch={dispatch} />
   }
+  return <Setup state={state} dispatch={dispatch} />
 }

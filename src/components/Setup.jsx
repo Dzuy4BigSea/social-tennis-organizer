@@ -1,191 +1,420 @@
 import React, { useState } from 'react'
-import { loadFromRoom, setRoomCodeInURL } from '../utils/share.js'
-
-const GENDER_MIX_OPTIONS = [
-  { value: 'open', label: "Open", color: 'bg-emerald-100 text-emerald-800 border-emerald-300' },
-  { value: 'mens', label: "Men's", color: 'bg-blue-100 text-blue-800 border-blue-300' },
-  { value: 'womens', label: "Women's", color: 'bg-pink-100 text-pink-800 border-pink-300' },
-  { value: 'mixed', label: 'Mixed', color: 'bg-purple-100 text-purple-800 border-purple-300' },
-]
+import { generateRoomCode, setRoomCodeInURL, getStoredPin } from '../utils/share.js'
+import PinGate, { PinSetup } from './PinGate.jsx'
 
 export default function Setup({ state, dispatch }) {
-  const { tournament } = state
-  const [joinCode, setJoinCode] = useState('')
-  const [joinStatus, setJoinStatus] = useState('') // 'loading' | 'error' | ''
+  const { tournament, divisions } = state
+  const [showPinSetup, setShowPinSetup] = useState(false)
+  const [showPinGate, setShowPinGate] = useState(false)
 
-  function update(field, value) {
-    dispatch({ type: 'SET_TOURNAMENT', payload: { [field]: value } })
+  const proAuthed = !tournament.pinHash || Boolean(getStoredPin())
+
+  function ensureRoomCode() {
+    if (tournament.roomCode) return tournament.roomCode
+    const code = generateRoomCode()
+    dispatch({ type: 'SET_ROOM_CODE', payload: code })
+    setRoomCodeInURL(code)
+    return code
   }
 
-  function handleContinue() {
-    if (!tournament.name.trim()) return
-    dispatch({ type: 'SET_PHASE', payload: 'roster' })
+  async function handlePinSet(hash) {
+    dispatch({ type: 'SET_PIN_HASH', payload: hash })
+    setShowPinSetup(false)
   }
 
-  async function handleJoin() {
-    const code = joinCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
-    if (code.length !== 6) return
-    setJoinStatus('loading')
-    const loaded = await loadFromRoom(code)
-    if (loaded) {
-      dispatch({ type: 'LOAD_STATE', payload: { ...loaded, tournament: { ...loaded.tournament, roomCode: code } } })
-      setRoomCodeInURL(code)
-    } else {
-      setJoinStatus('error')
-      setTimeout(() => setJoinStatus(''), 3000)
-    }
+  function ifAuthed(fn) {
+    if (proAuthed) fn()
+    else setShowPinGate(true)
   }
+
+  const allLocked = divisions.length > 0 && divisions.every(d => d.locked)
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-emerald-800 to-emerald-600 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-8">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="text-5xl mb-3">🎾</div>
-          <h1 className="text-3xl font-bold text-emerald-800">Tennis Tournament</h1>
-          <p className="text-gray-500 mt-1">Set up your charity doubles event</p>
-        </div>
+    <div className="max-w-3xl mx-auto px-4 py-6">
+      <Header
+        tournament={tournament}
+        roomCode={tournament.roomCode}
+        onRoomCode={ensureRoomCode}
+        onSetPin={() => setShowPinSetup(true)}
+      />
 
-        {/* Join existing room */}
-        <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl">
-          <p className="text-sm font-semibold text-emerald-800 mb-2">Join an existing session</p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={joinCode}
-              onChange={e => { setJoinCode(e.target.value.toUpperCase()); setJoinStatus('') }}
-              onKeyDown={e => e.key === 'Enter' && handleJoin()}
-              placeholder="Enter room code"
-              maxLength={6}
-              className="flex-1 border border-emerald-300 rounded-lg px-3 py-2 font-mono font-bold tracking-widest text-center text-gray-800 uppercase focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
-            <button
-              onClick={handleJoin}
-              disabled={joinCode.replace(/[^A-Z0-9]/g, '').length !== 6 || joinStatus === 'loading'}
-              className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 disabled:bg-gray-300 text-white rounded-lg font-bold transition-colors"
-            >
-              {joinStatus === 'loading' ? '...' : 'Join'}
-            </button>
-          </div>
-          {joinStatus === 'error' && (
-            <p className="text-red-600 text-xs mt-1.5">Room not found — check the code and try again.</p>
-          )}
-        </div>
-
-        <div className="flex items-center gap-3 mb-6">
-          <div className="flex-1 h-px bg-gray-200" />
-          <span className="text-xs text-gray-400 font-medium">or start a new tournament</span>
-          <div className="flex-1 h-px bg-gray-200" />
-        </div>
-
-        <div className="space-y-6">
-          {/* Tournament Name */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              Tournament Name
-            </label>
+      <section className="bg-white rounded-2xl border border-gray-200 p-4 mb-4">
+        <h2 className="font-bold text-tennis-green mb-3">Tournament details</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-gray-600">Name</span>
             <input
               type="text"
               value={tournament.name}
-              onChange={e => update('name', e.target.value)}
-              placeholder="e.g. Charity Classic 2025"
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+              onChange={(e) =>
+                ifAuthed(() =>
+                  dispatch({ type: 'SET_TOURNAMENT', payload: { name: e.target.value } })
+                )
+              }
+              placeholder="e.g. Spring Feed-In"
+              className="mt-1 w-full border-2 border-gray-200 rounded-xl px-3 py-2 focus:border-tennis-green focus:outline-none"
             />
-          </div>
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-600">Date</span>
+            <input
+              type="date"
+              value={tournament.date}
+              onChange={(e) =>
+                ifAuthed(() =>
+                  dispatch({ type: 'SET_TOURNAMENT', payload: { date: e.target.value } })
+                )
+              }
+              className="mt-1 w-full border-2 border-gray-200 rounded-xl px-3 py-2 focus:border-tennis-green focus:outline-none"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-gray-600">First to N games</span>
+            <input
+              type="number"
+              min="1"
+              max="21"
+              value={tournament.winningScore}
+              onChange={(e) =>
+                ifAuthed(() =>
+                  dispatch({
+                    type: 'SET_TOURNAMENT',
+                    payload: { winningScore: Math.max(1, parseInt(e.target.value) || 7) },
+                  })
+                )
+              }
+              className="mt-1 w-full border-2 border-gray-200 rounded-xl px-3 py-2 focus:border-tennis-green focus:outline-none"
+            />
+          </label>
+        </div>
+      </section>
 
-          {/* Format */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Format
-            </label>
-            <div className="flex gap-3">
-              {['singles', 'doubles'].map(fmt => (
-                <button
-                  key={fmt}
-                  onClick={() => update('format', fmt)}
-                  className={`flex-1 py-2.5 rounded-lg font-medium border-2 transition-all ${
-                    tournament.format === fmt
-                      ? 'bg-emerald-700 border-emerald-700 text-white'
-                      : 'bg-white border-gray-300 text-gray-600 hover:border-emerald-400'
-                  }`}
-                >
-                  {fmt.charAt(0).toUpperCase() + fmt.slice(1)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Number of Courts */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Number of Courts
-            </label>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => update('numCourts', Math.max(1, tournament.numCourts - 1))}
-                className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xl flex items-center justify-center transition-colors"
-              >
-                −
-              </button>
-              <input
-                type="number"
-                min={1}
-                max={14}
-                value={tournament.numCourts}
-                onChange={e => {
-                  const v = parseInt(e.target.value)
-                  if (!isNaN(v) && v >= 1 && v <= 14) update('numCourts', v)
-                }}
-                className="w-20 text-center border border-gray-300 rounded-lg px-3 py-2 text-gray-800 text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-              />
-              <button
-                onClick={() => update('numCourts', Math.min(14, tournament.numCourts + 1))}
-                className="w-10 h-10 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xl flex items-center justify-center transition-colors"
-              >
-                +
-              </button>
-              <span className="text-gray-500 text-sm ml-1">
-                courts ({tournament.numCourts * (tournament.format === 'singles' ? 2 : 4)} players/round)
-              </span>
-            </div>
-          </div>
-
-          {/* Gender Mix */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Gender Mix
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              {GENDER_MIX_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => update('genderMix', opt.value)}
-                  className={`py-2 px-3 rounded-lg border-2 font-medium transition-all ${
-                    tournament.genderMix === opt.value
-                      ? opt.color + ' border-current shadow-sm'
-                      : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Continue Button */}
+      {!tournament.pinHash && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-4 mb-4 text-sm">
+          <p className="text-yellow-900">
+            <strong>No PIN set.</strong> Anyone with the room code can edit scores. Set a PIN so only the pros can score.
+          </p>
           <button
-            onClick={handleContinue}
-            disabled={!tournament.name.trim()}
-            className={`w-full py-3 rounded-xl font-bold text-lg transition-all ${
-              tournament.name.trim()
-                ? 'bg-emerald-700 hover:bg-emerald-600 text-white shadow-md hover:shadow-lg'
-                : 'bg-gray-200 text-gray-400 cursor-not-allowed'
-            }`}
+            onClick={() => setShowPinSetup(true)}
+            className="mt-2 px-4 py-2 rounded-xl bg-yellow-500 text-white font-semibold"
           >
-            Continue to Roster →
+            Set PIN
           </button>
         </div>
+      )}
+
+      <section>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-bold text-tennis-green">Divisions</h2>
+          <button
+            onClick={() =>
+              ifAuthed(() => dispatch({ type: 'ADD_DIVISION', payload: { name: '' } }))
+            }
+            className="px-3 py-2 rounded-xl bg-tennis-green text-white font-semibold text-sm"
+          >
+            + Add Division
+          </button>
+        </div>
+
+        {divisions.length === 0 ? (
+          <div className="bg-white border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center text-gray-500">
+            No divisions yet. Add one to start (e.g. <em>Mens 4.0/Open</em>).
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {divisions.map((d) => (
+              <DivisionCard
+                key={d.id}
+                division={d}
+                dispatch={dispatch}
+                ifAuthed={ifAuthed}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {allLocked && (
+        <div className="sticky bottom-4 mt-6 z-30">
+          <button
+            onClick={() => ifAuthed(() => dispatch({ type: 'START_LIVE' }))}
+            className="w-full py-4 rounded-2xl bg-tennis-green text-white text-lg font-bold shadow-lg"
+          >
+            Start Tournament →
+          </button>
+        </div>
+      )}
+
+      {showPinSetup && (
+        <PinSetup onSet={handlePinSet} onClose={() => setShowPinSetup(false)} />
+      )}
+      {showPinGate && (
+        <PinGate
+          pinHash={tournament.pinHash}
+          onUnlock={() => setShowPinGate(false)}
+          onClose={() => setShowPinGate(false)}
+        />
+      )}
+    </div>
+  )
+}
+
+function Header({ tournament, roomCode, onRoomCode, onSetPin }) {
+  const shareUrl = roomCode
+    ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
+    : ''
+
+  return (
+    <header className="mb-5">
+      <div className="flex items-center justify-between mb-2">
+        <h1 className="text-2xl font-bold text-tennis-green">Feed-In Tournament</h1>
+        <button
+          onClick={onSetPin}
+          className="text-xs px-3 py-2 rounded-xl border border-gray-300 bg-white"
+          title="Set or change pro PIN"
+        >
+          {tournament.pinHash ? 'Change PIN' : 'Set PIN'}
+        </button>
       </div>
+
+      <div className="bg-white rounded-2xl border border-gray-200 p-3 flex items-center gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="text-xs text-gray-500">Room code (share with iPads)</div>
+          <div className="font-mono text-2xl tracking-wider text-tennis-green truncate">
+            {roomCode || '—'}
+          </div>
+        </div>
+        {!roomCode ? (
+          <button
+            onClick={onRoomCode}
+            className="px-4 py-2 rounded-xl bg-tennis-green text-white font-semibold"
+          >
+            Create Room
+          </button>
+        ) : (
+          <button
+            onClick={() => navigator.clipboard?.writeText(shareUrl)}
+            className="px-3 py-2 rounded-xl border border-gray-300 text-sm"
+          >
+            Copy link
+          </button>
+        )}
+      </div>
+    </header>
+  )
+}
+
+function DivisionCard({ division, dispatch, ifAuthed }) {
+  const { id, name, courtLabel, pairs, locked } = division
+  const [expanded, setExpanded] = useState(true)
+  const canLock = pairs.length >= 2
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-200">
+      <div className="p-4 flex items-center gap-3 flex-wrap">
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="text-gray-400 text-lg"
+          aria-label="toggle"
+        >
+          {expanded ? '▾' : '▸'}
+        </button>
+        <input
+          type="text"
+          value={name}
+          onChange={(e) =>
+            ifAuthed(() =>
+              dispatch({
+                type: 'UPDATE_DIVISION',
+                payload: { id, patch: { name: e.target.value } },
+              })
+            )
+          }
+          placeholder="Division name (e.g. Mens 4.0/Open)"
+          className="flex-1 min-w-[10rem] font-bold text-lg text-gray-900 bg-transparent focus:outline-none border-b border-transparent focus:border-tennis-green"
+          disabled={locked}
+        />
+        <input
+          type="text"
+          value={courtLabel}
+          onChange={(e) =>
+            ifAuthed(() =>
+              dispatch({
+                type: 'UPDATE_DIVISION',
+                payload: { id, patch: { courtLabel: e.target.value } },
+              })
+            )
+          }
+          placeholder="Court"
+          className="w-20 text-sm text-center border border-gray-200 rounded-lg px-2 py-1"
+          disabled={locked}
+        />
+        {locked ? (
+          <button
+            onClick={() =>
+              ifAuthed(() =>
+                dispatch({ type: 'UNLOCK_DIVISION', payload: { divisionId: id } })
+              )
+            }
+            className="px-3 py-2 rounded-xl border border-yellow-400 text-yellow-700 text-sm font-semibold"
+          >
+            Unlock
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() =>
+                ifAuthed(() =>
+                  dispatch({ type: 'LOCK_DIVISION', payload: { divisionId: id } })
+                )
+              }
+              disabled={!canLock}
+              className="px-3 py-2 rounded-xl bg-tennis-green text-white text-sm font-semibold disabled:opacity-40"
+            >
+              Generate Schedule
+            </button>
+            <button
+              onClick={() =>
+                ifAuthed(() => {
+                  if (confirm(`Remove division "${name || 'unnamed'}"?`))
+                    dispatch({ type: 'REMOVE_DIVISION', payload: id })
+                })
+              }
+              className="px-2 py-2 rounded-xl text-gray-400 hover:text-red-600"
+              title="Remove"
+            >
+              ✕
+            </button>
+          </>
+        )}
+      </div>
+
+      {expanded && (
+        <div className="border-t border-gray-100 p-4">
+          <div className="text-xs text-gray-500 mb-2">
+            Pairs ({pairs.length}) ·{' '}
+            {pairs.length < 2 ? 'add at least 2' : `${pairs.length} round-robin teams`}
+          </div>
+          <PairList division={division} dispatch={dispatch} ifAuthed={ifAuthed} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PairList({ division, dispatch, ifAuthed }) {
+  const [p1, setP1] = useState('')
+  const [p2, setP2] = useState('')
+  const { pairs, locked } = division
+
+  function add() {
+    if (!p1.trim() && !p2.trim()) return
+    ifAuthed(() => {
+      dispatch({
+        type: 'ADD_PAIR',
+        payload: { divisionId: division.id, p1: p1.trim(), p2: p2.trim() },
+      })
+      setP1('')
+      setP2('')
+    })
+  }
+
+  return (
+    <div>
+      <ol className="space-y-2 mb-3">
+        {pairs.map((pair, idx) => (
+          <li
+            key={pair.id}
+            className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2"
+          >
+            <span className="w-6 text-center font-bold text-gray-500">{idx + 1}</span>
+            <input
+              type="text"
+              value={pair.p1}
+              onChange={(e) =>
+                ifAuthed(() =>
+                  dispatch({
+                    type: 'UPDATE_PAIR',
+                    payload: {
+                      divisionId: division.id,
+                      pairId: pair.id,
+                      patch: { p1: e.target.value },
+                    },
+                  })
+                )
+              }
+              placeholder="Player 1"
+              disabled={locked}
+              className="flex-1 bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm"
+            />
+            <span className="text-gray-400">/</span>
+            <input
+              type="text"
+              value={pair.p2}
+              onChange={(e) =>
+                ifAuthed(() =>
+                  dispatch({
+                    type: 'UPDATE_PAIR',
+                    payload: {
+                      divisionId: division.id,
+                      pairId: pair.id,
+                      patch: { p2: e.target.value },
+                    },
+                  })
+                )
+              }
+              placeholder="Player 2"
+              disabled={locked}
+              className="flex-1 bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm"
+            />
+            {!locked && (
+              <button
+                onClick={() =>
+                  ifAuthed(() =>
+                    dispatch({
+                      type: 'REMOVE_PAIR',
+                      payload: { divisionId: division.id, pairId: pair.id },
+                    })
+                  )
+                }
+                className="text-gray-400 hover:text-red-600 px-1"
+                title="Remove pair"
+              >
+                ✕
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
+
+      {!locked && (
+        <div className="flex items-center gap-2">
+          <span className="w-6 text-center font-bold text-gray-300">{pairs.length + 1}</span>
+          <input
+            type="text"
+            value={p1}
+            onChange={(e) => setP1(e.target.value)}
+            placeholder="Player 1"
+            className="flex-1 bg-white border-2 border-gray-200 rounded-lg px-2 py-1 text-sm"
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+          />
+          <span className="text-gray-400">/</span>
+          <input
+            type="text"
+            value={p2}
+            onChange={(e) => setP2(e.target.value)}
+            placeholder="Player 2"
+            className="flex-1 bg-white border-2 border-gray-200 rounded-lg px-2 py-1 text-sm"
+            onKeyDown={(e) => e.key === 'Enter' && add()}
+          />
+          <button
+            onClick={add}
+            className="px-3 py-1 rounded-lg bg-tennis-green text-white text-sm font-semibold"
+          >
+            Add
+          </button>
+        </div>
+      )}
     </div>
   )
 }

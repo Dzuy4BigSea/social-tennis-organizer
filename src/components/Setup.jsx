@@ -6,6 +6,7 @@ import Brand from './Brand.jsx'
 import SetupBracket from './SetupBracket.jsx'
 import ComingSoon from './ComingSoon.jsx'
 import SchedulePanel from './SchedulePanel.jsx'
+import OrnamentalRule from './OrnamentalRule.jsx'
 import {
   getEventType,
   VARIANTS,
@@ -503,7 +504,7 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
           </button>
         </div>
       </div>
-      <div className="vinoy-rule mb-4" />
+      <OrnamentalRule className="mb-4" />
 
       <div className="bg-white rounded-2xl border border-vinoy-border p-3 flex items-center gap-3">
         <div className="flex-1 min-w-0">

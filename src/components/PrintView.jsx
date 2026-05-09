@@ -46,13 +46,34 @@ export default function PrintView({ state, onClose }) {
 
       <div className="max-w-[850px] mx-auto p-6 print:p-0 print:max-w-none">
         <PrintHeader state={state} />
-        {engine === 'roundRobin' && <RoundRobinPrint state={state} />}
-        {(engine === 'singleElim' || engine === 'doubleElim') && (
-          <BracketPrint state={state} />
-        )}
-        {engine === 'comingSoon' && (
+
+        {/* Print all draws of any kind. Round-robin divisions first,
+            then brackets — rough chronological order in most events.
+            Each draw starts on a fresh page so the printout collates
+            cleanly when posted on a wall. */}
+        {(state.divisions || []).filter(d => d.locked).map((d, idx) => (
+          <div key={d.id} className={idx > 0 ? 'print:break-before-page' : ''}>
+            <DivisionPrint division={d} />
+          </div>
+        ))}
+
+        {(state.brackets || [])
+          .filter(b => b.locked && (b.matches?.length || 0) > 0)
+          .map((b, idx) => {
+            const isFirstSection =
+              (state.divisions || []).filter(x => x.locked).length === 0 && idx === 0
+            return (
+              <div key={b.id} className={!isFirstSection ? 'print:break-before-page' : ''}>
+                <BracketPrint bracket={b} />
+              </div>
+            )
+          })}
+
+        {emptyContent(state) && (
           <p className="text-vinoy-ink/60 text-sm italic">
-            Printable view for this event format isn't available yet.
+            {engine === 'comingSoon'
+              ? 'Printable view for this event format isn’t available yet.'
+              : 'No locked divisions or brackets to print yet — head back to Setup and lock a draw first.'}
           </p>
         )}
       </div>
@@ -127,27 +148,13 @@ function formatDate(iso) {
   })
 }
 
-// ----- Round robin -----
-
-function RoundRobinPrint({ state }) {
-  const lockedDivs = state.divisions.filter(d => d.locked)
-  if (lockedDivs.length === 0) {
-    return (
-      <p className="text-vinoy-ink/60 text-sm italic">
-        No divisions locked yet — generate schedules first.
-      </p>
-    )
-  }
-  return (
-    <div className="space-y-8">
-      {lockedDivs.map((d, idx) => (
-        <div key={d.id} className={idx > 0 ? 'print:break-before-page' : ''}>
-          <DivisionPrint division={d} />
-        </div>
-      ))}
-    </div>
-  )
+function emptyContent(state) {
+  const hasDiv = (state.divisions || []).some(d => d.locked)
+  const hasBr = (state.brackets || []).some(b => b.locked && (b.matches?.length || 0) > 0)
+  return !hasDiv && !hasBr
 }
+
+// ----- Round robin -----
 
 function DivisionPrint({ division }) {
   const byRound = {}
@@ -299,15 +306,7 @@ function StandingsPrint({ division }) {
 
 // ----- Bracket -----
 
-function BracketPrint({ state }) {
-  const { bracket, tournament } = state
-  if (!bracket || !bracket.matches?.length) {
-    return (
-      <p className="text-vinoy-ink/60 text-sm italic">
-        Draw not generated yet — head back and lock the bracket first.
-      </p>
-    )
-  }
+function BracketPrint({ bracket }) {
   const wb = bracket.matches.filter(m => m.bracket === 'main')
   const lb = bracket.matches.filter(m => m.bracket === 'losers')
   const gf = bracket.matches.filter(m => m.bracket === 'grandFinal' || m.bracket === 'reset')
@@ -315,10 +314,17 @@ function BracketPrint({ state }) {
 
   return (
     <div className="space-y-6">
+      <h2 className="font-display text-2xl font-bold text-vinoy-green">
+        {bracket.name || 'Bracket'}
+        <span className="ml-3 text-sm font-normal text-vinoy-ink/60">
+          {isDouble ? 'Double Elimination' : 'Single Elimination'}
+        </span>
+      </h2>
+
       <SeedList bracket={bracket} />
 
       <BracketMatchList
-        title={isDouble ? "Winner's Bracket" : 'Bracket'}
+        title={isDouble ? "Winner's Bracket" : 'Draw'}
         bracket={bracket}
         matches={wb}
       />

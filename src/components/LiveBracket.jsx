@@ -13,8 +13,7 @@ import { formatMatchTime } from '../utils/format.js'
  *      (in pro mode) re-opens the score editor; tapping a pending
  *      match where both sides are known opens the same entry UI.
  */
-export default function LiveBracket({ state, dispatch, ifAuthed, proAuthed }) {
-  const { bracket } = state
+export default function LiveBracket({ bracket, dispatch, ifAuthed, proAuthed }) {
   const [editing, setEditing] = useState(null)
 
   const enriched = useMemo(() => enrichMatches(bracket), [bracket])
@@ -22,8 +21,8 @@ export default function LiveBracket({ state, dispatch, ifAuthed, proAuthed }) {
   if (!bracket || !bracket.matches?.length) {
     return (
       <div className="bg-white rounded-2xl border border-vinoy-border p-6 text-center text-vinoy-ink/60">
-        No draw generated yet. Head back to Setup to add entrants and lock the
-        bracket.
+        No draw generated yet for {bracket?.name || 'this bracket'}. Head back
+        to Setup to add entrants and lock the bracket.
       </div>
     )
   }
@@ -48,7 +47,7 @@ export default function LiveBracket({ state, dispatch, ifAuthed, proAuthed }) {
         <div className="bg-vinoy-green text-white rounded-2xl p-6 text-center">
           <h2 className="font-display text-2xl font-bold">Champion!</h2>
           <p className="text-white/80 text-sm mt-1">
-            {entrantLabel(winnerEntrant(bracket, champion))}
+            {entrantLabel(winnerEntrant(bracket, championMatch))}
           </p>
         </div>
       ) : playable ? (
@@ -78,6 +77,7 @@ export default function LiveBracket({ state, dispatch, ifAuthed, proAuthed }) {
       {editing && (
         <BracketScoreModal
           match={enriched.find(m => m.id === editing.id) || editing}
+          bracketId={bracket.id}
           dispatch={dispatch}
           onClose={() => setEditing(null)}
         />
@@ -428,7 +428,7 @@ function Side({ side, score, winner }) {
   )
 }
 
-function BracketScoreModal({ match, dispatch, onClose }) {
+function BracketScoreModal({ match, bracketId, dispatch, onClose }) {
   const [scoreA, setScoreA] = useState(String(match.scoreA ?? ''))
   const [scoreB, setScoreB] = useState(String(match.scoreB ?? ''))
 
@@ -444,14 +444,17 @@ function BracketScoreModal({ match, dispatch, onClose }) {
     if (a === b) return alert('A bracket match must have a winner.')
     dispatch({
       type: 'RECORD_BRACKET_SCORE',
-      payload: { matchId: match.id, scoreA: a, scoreB: b },
+      payload: { bracketId, matchId: match.id, scoreA: a, scoreB: b },
     })
     onClose?.()
   }
 
   function clear() {
     if (!confirm('Clear this score and put the match back in play?')) return
-    dispatch({ type: 'CLEAR_BRACKET_SCORE', payload: { matchId: match.id } })
+    dispatch({
+      type: 'CLEAR_BRACKET_SCORE',
+      payload: { bracketId, matchId: match.id },
+    })
     onClose?.()
   }
 

@@ -11,51 +11,48 @@ import { getEventType } from '../utils/eventTypes.js'
  * no real meaning.
  */
 export default function SchedulePanel({ state, dispatch, ifAuthed }) {
-  const { tournament, divisions, bracket } = state
-  const evt = getEventType(tournament.type)
-  const engine = evt.engine
+  const { divisions } = state
+  const lockedDivs = divisions.filter(d => d.locked)
+  const lockedBrackets = (state.brackets || []).filter(
+    b => b.locked && (b.matches?.length || 0) > 0
+  )
+  if (lockedDivs.length === 0 && lockedBrackets.length === 0) return null
 
-  if (engine === 'roundRobin') {
-    const locked = divisions.filter(d => d.locked)
-    if (locked.length === 0) return null
-    return (
-      <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
-        <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-          <h2 className="font-display text-xl font-bold text-vinoy-green">Match schedule</h2>
-          <span className="text-xs text-vinoy-ink/60">
-            Optional — appears on the printed draw and the live cards.
-          </span>
-        </div>
-        {locked.map(d => (
-          <RoundRobinDivisionSchedule
-            key={d.id}
-            division={d}
+  return (
+    <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
+      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <h2 className="font-display text-xl font-bold text-vinoy-green">Match schedule</h2>
+        <span className="text-xs text-vinoy-ink/60">
+          Optional — appears on the printed draw and the live cards.
+          Set times even before participants are known so marketing
+          schedules can post.
+        </span>
+      </div>
+      {lockedDivs.map(d => (
+        <RoundRobinDivisionSchedule
+          key={d.id}
+          division={d}
+          dispatch={dispatch}
+          ifAuthed={ifAuthed}
+        />
+      ))}
+      {lockedBrackets.map(b => (
+        <div key={b.id} className="mb-4 last:mb-0">
+          <div className="text-sm font-semibold text-vinoy-ink/80 mb-1">
+            {b.name || 'Bracket'}
+            <span className="ml-2 text-xs font-normal text-vinoy-ink/50">
+              {b.type === 'doubleElim' ? 'Double Elim' : 'Single Elim'}
+            </span>
+          </div>
+          <BracketSchedule
+            bracket={b}
             dispatch={dispatch}
             ifAuthed={ifAuthed}
           />
-        ))}
-      </section>
-    )
-  }
-
-  if (engine === 'singleElim' || engine === 'doubleElim') {
-    if (!bracket?.locked || !bracket.matches?.length) return null
-    return (
-      <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
-        <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
-          <h2 className="font-display text-xl font-bold text-vinoy-green">Match schedule</h2>
-          <span className="text-xs text-vinoy-ink/60">
-            Set times for matches whose participants aren't decided yet
-            (e.g. "Quarterfinals · Sat 2pm") so the printed draw works
-            for marketing.
-          </span>
         </div>
-        <BracketSchedule bracket={bracket} dispatch={dispatch} ifAuthed={ifAuthed} />
-      </section>
-    )
-  }
-
-  return null
+      ))}
+    </section>
+  )
 }
 
 function RoundRobinDivisionSchedule({ division, dispatch, ifAuthed }) {
@@ -154,7 +151,11 @@ function BracketScheduleRow({ bracket, match, dispatch, ifAuthed }) {
           ifAuthed(() =>
             dispatch({
               type: 'SET_BRACKET_MATCH_SCHEDULE',
-              payload: { matchId: match.id, scheduledAt: e.target.value },
+              payload: {
+                bracketId: bracket.id,
+                matchId: match.id,
+                scheduledAt: e.target.value,
+              },
             })
           )
         }

@@ -24,26 +24,27 @@ import { CSS } from '@dnd-kit/utilities'
 import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifiers'
 
 /**
- * Setup screen for elimination events. The pro lists entrants
- * (singles get one name, doubles get a pair), drags rows to set
- * seed order, then "Generate draw" to lock in the bracket.
+ * Setup card for one elimination draw. Each bracket in the event
+ * gets its own card; the parent screen renders them in a list with
+ * an "+ Add bracket" affordance.
  *
- * Driving both single- and double-elim from one screen keeps the
- * setup ritual identical — only the generator function differs.
+ * The pro lists entrants (singles get one name, doubles get a pair),
+ * drags rows to set seed order, then "Generate draw" to lock the
+ * bracket. Driving both single- and double-elim from one component
+ * keeps the setup ritual identical — only the generator differs.
  */
-export default function SetupBracket({ state, dispatch, ifAuthed }) {
-  const { tournament, bracket } = state
-  const evt = getEventType(tournament.type)
-  const isDoubles = evt.entrantKind === 'doubles'
-  const isDoubleElim = evt.engine === 'doubleElim'
-  const entrants = bracket?.entrants || []
-  const drawSize = bracket?.size || 0
+export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntrantKind, onRemove }) {
+  // entrant kind comes from the parent event for legacy single-bracket
+  // events; future per-bracket overrides could thread it through too.
+  const isDoubles =
+    bracket.entrantKind === 'doubles' || defaultEntrantKind === 'doubles'
+  const isDoubleElim = bracket.type === 'doubleElim'
+  const entrants = bracket.entrants || []
+  const drawSize = bracket.size || 0
   const [p1, setP1] = useState('')
   const [p2, setP2] = useState('')
 
   const sensors = useSensors(
-    // Activation distance prevents the row from grabbing focus on a
-    // stray tap; the user must intentionally start a drag.
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, {
       activationConstraint: { delay: 200, tolerance: 5 },
@@ -56,15 +57,9 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
     const b = isDoubles ? p2.trim() : ''
     if (!a && !b) return
     ifAuthed(() => {
-      if (!bracket) {
-        dispatch({
-          type: 'SET_BRACKET',
-          payload: { type: isDoubleElim ? 'doubleElim' : 'singleElim', entrants: [], matches: [] },
-        })
-      }
       dispatch({
         type: 'ADD_BRACKET_ENTRANT',
-        payload: { p1: a, p2: b },
+        payload: { bracketId: bracket.id, p1: a, p2: b },
       })
       setP1('')
       setP2('')
@@ -78,30 +73,16 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
         ? generateDoubleElimBracket(entrants)
         : generateSingleElimBracket(entrants)
       dispatch({
-        type: 'SET_BRACKET',
+        type: 'UPDATE_BRACKET',
         payload: {
-          type: isDoubleElim ? 'doubleElim' : 'singleElim',
-          entrants,
-          matches: built.matches,
-          rounds: built.rounds,
-          size: built.size,
-          locked: true,
+          id: bracket.id,
+          patch: {
+            matches: built.matches,
+            rounds: built.rounds,
+            size: built.size,
+            locked: true,
+          },
         },
-      })
-    })
-  }
-
-  function addBye() {
-    ifAuthed(() => {
-      if (!bracket) {
-        dispatch({
-          type: 'SET_BRACKET',
-          payload: { type: isDoubleElim ? 'doubleElim' : 'singleElim', entrants: [], matches: [] },
-        })
-      }
-      dispatch({
-        type: 'ADD_BRACKET_ENTRANT',
-        payload: { p1: 'BYE', p2: '', isBye: true },
       })
     })
   }
@@ -109,13 +90,20 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
   function unlock() {
     ifAuthed(() => {
       dispatch({
-        type: 'SET_BRACKET',
+        type: 'UPDATE_BRACKET',
         payload: {
-          type: isDoubleElim ? 'doubleElim' : 'singleElim',
-          entrants,
-          matches: [],
-          locked: false,
+          id: bracket.id,
+          patch: { matches: [], locked: false },
         },
+      })
+    })
+  }
+
+  function addBye() {
+    ifAuthed(() => {
+      dispatch({
+        type: 'ADD_BRACKET_ENTRANT',
+        payload: { bracketId: bracket.id, p1: 'BYE', p2: '', isBye: true },
       })
     })
   }
@@ -130,38 +118,66 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
       const reordered = arrayMove(entrants, oldIndex, newIndex)
       dispatch({
         type: 'REORDER_BRACKET_ENTRANTS',
-        payload: { order: reordered.map(x => x.id) },
+        payload: { bracketId: bracket.id, order: reordered.map(x => x.id) },
       })
     })
   }
 
-  const locked = !!bracket?.locked
+  const locked = !!bracket.locked
   const canLock = entrants.length >= 2
 
   return (
     <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <h2 className="font-display text-xl font-bold text-vinoy-green">
-          Entrants
-        </h2>
-        {locked ? (
-          <button
-            onClick={unlock}
-            className="px-3 py-2 rounded-xl border border-yellow-400 text-yellow-700 text-sm font-semibold"
-            title="Unlock to edit seeds"
-          >
-            Unlock draw
-          </button>
-        ) : (
-          <button
-            onClick={generate}
-            disabled={!canLock}
-            className="px-4 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm disabled:opacity-40"
-            title={canLock ? 'Generate draw' : 'Add at least 2 entrants'}
-          >
-            Generate draw
-          </button>
-        )}
+        <div className="flex-1 min-w-0">
+          <input
+            type="text"
+            value={bracket.name || ''}
+            disabled={locked}
+            onChange={(e) =>
+              ifAuthed(() =>
+                dispatch({
+                  type: 'UPDATE_BRACKET',
+                  payload: { id: bracket.id, patch: { name: e.target.value } },
+                })
+              )
+            }
+            placeholder="Draw name (e.g. Men's 4.0)"
+            className="font-display text-xl font-bold text-vinoy-green bg-transparent border-b border-transparent focus:border-vinoy-green focus:outline-none w-full"
+          />
+          <div className="text-xs text-vinoy-ink/60 mt-0.5">
+            {isDoubleElim ? 'Double Elimination' : 'Single Elimination'} ·{' '}
+            {isDoubles ? 'Doubles' : 'Singles'}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {locked ? (
+            <button
+              onClick={unlock}
+              className="px-3 py-2 rounded-xl border border-yellow-400 text-yellow-700 text-sm font-semibold"
+              title="Unlock to edit seeds"
+            >
+              Unlock draw
+            </button>
+          ) : (
+            <button
+              onClick={generate}
+              disabled={!canLock}
+              className="px-4 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm disabled:opacity-40"
+            >
+              Generate draw
+            </button>
+          )}
+          {!locked && onRemove && (
+            <button
+              onClick={onRemove}
+              className="text-vinoy-ink/40 hover:text-red-600 px-1"
+              title="Remove this bracket"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
       {locked && (
         <p className="text-xs text-vinoy-ink/70 bg-vinoy-cream rounded-lg px-3 py-2 mb-3">
@@ -172,7 +188,7 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
 
       {!locked && entrants.length >= 2 && (
         <p className="text-xs text-vinoy-ink/60 mb-2">
-          Drag the ☰ handle to reorder — seeds reassign automatically.
+          Drag the seed bubble to reorder — seeds reassign automatically.
         </p>
       )}
 
@@ -197,7 +213,7 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
                   ifAuthed(() =>
                     dispatch({
                       type: 'UPDATE_BRACKET_ENTRANT',
-                      payload: { id: e.id, patch: { p1: val } },
+                      payload: { bracketId: bracket.id, id: e.id, patch: { p1: val } },
                     })
                   )
                 }
@@ -205,7 +221,7 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
                   ifAuthed(() =>
                     dispatch({
                       type: 'UPDATE_BRACKET_ENTRANT',
-                      payload: { id: e.id, patch: { p2: val } },
+                      payload: { bracketId: bracket.id, id: e.id, patch: { p2: val } },
                     })
                   )
                 }
@@ -213,7 +229,7 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
                   ifAuthed(() =>
                     dispatch({
                       type: 'REMOVE_BRACKET_ENTRANT',
-                      payload: { id: e.id },
+                      payload: { bracketId: bracket.id, id: e.id },
                     })
                   )
                 }
@@ -268,22 +284,10 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
           </button>
         </>
       )}
-
-      <p className="text-xs text-vinoy-ink/60 mt-3">
-        {isDoubleElim
-          ? 'Double elimination: every entrant gets a second life in the loser’s bracket. The loser’s-bracket champion meets the winner’s-bracket champion in the grand final.'
-          : 'Top seeds get any first-round byes when the field isn’t a power of two.'}
-      </p>
     </section>
   )
 }
 
-/**
- * Single entrant row, made sortable via @dnd-kit. The drag handle is
- * the seed bubble on the left so a tap on a name input doesn't
- * accidentally start a drag — important on touch where input focus
- * and pointerdown can race.
- */
 function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemove }) {
   const {
     attributes,

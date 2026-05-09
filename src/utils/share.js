@@ -4,7 +4,11 @@ const API = './tennis-save.php'
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PIN_KEY = 'feedin-pin' // stored in localStorage, scoped per device
 const RECENT_KEY = 'feedin-recent-rooms'
-const RECENT_LIMIT = 10
+// Storage cap is generous; the Home screen shows the most recent
+// five separately and renders the rest under an "All events" archive
+// grouped by date. 100 is plenty for a busy club without ever falling
+// off the end.
+const RECENT_LIMIT = 100
 
 export function generateRoomCode() {
   return Array.from({ length: 6 }, () =>

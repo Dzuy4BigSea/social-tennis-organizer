@@ -105,38 +105,26 @@ export default function Home({
           </p>
         ) : (
           <ul className="space-y-2">
-            {recents.map((r) => (
-              <li
+            {/* Cap Recent at five — the long tail lives in the
+                All-events archive below, grouped by date so it stays
+                navigable. */}
+            {recents.slice(0, 5).map((r) => (
+              <RoomRow
                 key={r.code}
-                className="flex items-stretch rounded-xl bg-vinoy-cream hover:bg-vinoy-parchment overflow-hidden"
-              >
-                <button
-                  onClick={() => handleJoin(r.code)}
-                  className="flex-1 min-w-0 text-left px-3 py-2.5"
-                >
-                  <div className="font-semibold text-vinoy-ink truncate">
-                    {r.name || 'Untitled event'}
-                  </div>
-                  <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                    <RecentBadges room={r} />
-                  </div>
-                  <div className="text-xs text-vinoy-ink/50 font-mono mt-1">
-                    Room {r.code}
-                    {r.lastVisited && ` · ${formatRelative(r.lastVisited)}`}
-                  </div>
-                </button>
-                <button
-                  onClick={() => handleRemoveRecent(r.code)}
-                  className="px-2 text-vinoy-ink/40 hover:text-red-600 hover:bg-vinoy-parchment"
-                  title="Remove from list"
-                >
-                  ✕
-                </button>
-              </li>
+                room={r}
+                onJoin={() => handleJoin(r.code)}
+                onRemove={() => handleRemoveRecent(r.code)}
+              />
             ))}
           </ul>
         )}
       </section>
+
+      <AllEventsSection
+        recents={recents}
+        onJoin={handleJoin}
+        onRemove={handleRemoveRecent}
+      />
 
       <section className="bg-white rounded-2xl border border-vinoy-border shadow-sm p-4">
         <h3 className="font-display text-lg font-bold text-vinoy-green mb-1">
@@ -183,6 +171,137 @@ export default function Home({
       )}
     </div>
   )
+}
+
+/**
+ * Single event row used by both the "Recent events" list (capped at
+ * five) and each group inside the All-events archive. Keeping it
+ * here means the visual treatment stays in lockstep across the two
+ * places it appears.
+ */
+function RoomRow({ room, onJoin, onRemove }) {
+  return (
+    <li className="flex items-stretch rounded-xl bg-vinoy-cream hover:bg-vinoy-parchment overflow-hidden">
+      <button
+        onClick={onJoin}
+        className="flex-1 min-w-0 text-left px-3 py-2.5"
+      >
+        <div className="font-semibold text-vinoy-ink truncate">
+          {room.name || 'Untitled event'}
+        </div>
+        <div className="flex items-center flex-wrap gap-1.5 mt-1">
+          <RecentBadges room={room} />
+        </div>
+        <div className="text-xs text-vinoy-ink/50 font-mono mt-1">
+          Room {room.code}
+          {room.lastVisited && ` · ${formatRelative(room.lastVisited)}`}
+        </div>
+      </button>
+      <button
+        onClick={onRemove}
+        className="px-2 text-vinoy-ink/40 hover:text-red-600 hover:bg-vinoy-parchment"
+        title="Remove from list"
+      >
+        ✕
+      </button>
+    </li>
+  )
+}
+
+/**
+ * Full archive of every event the device has touched, grouped into
+ * Upcoming / In progress / Past based on the event's start/end dates
+ * (or `ongoing` flag). Each group sorts by the most useful order:
+ * upcoming = soonest first, past = most recent first.
+ *
+ * Hidden when the device has fewer than six events — at that size
+ * everything fits in the Recent list above and a redundant archive
+ * just adds noise.
+ */
+function AllEventsSection({ recents, onJoin, onRemove }) {
+  if (recents.length <= 5) return null
+  const groups = groupEvents(recents)
+  const labels = {
+    inProgress: 'In progress',
+    upcoming: 'Upcoming',
+    past: 'Past',
+  }
+  // Render order: in-progress first (most actionable), upcoming next,
+  // past last. Empty groups skipped so the section doesn't look thin.
+  const order = ['inProgress', 'upcoming', 'past']
+  return (
+    <section className="bg-white rounded-2xl border border-vinoy-border shadow-sm p-4 mb-4">
+      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <h3 className="font-display text-lg font-bold text-vinoy-green">
+          All events
+        </h3>
+        <span className="text-xs text-vinoy-ink/60">
+          {recents.length} on this device
+        </span>
+      </div>
+      <div className="space-y-4">
+        {order
+          .filter(key => groups[key].length > 0)
+          .map(key => (
+            <div key={key}>
+              <div className="text-xs uppercase tracking-wider font-semibold text-vinoy-ink/60 mb-2">
+                {labels[key]} · {groups[key].length}
+              </div>
+              <ul className="space-y-2">
+                {groups[key].map(r => (
+                  <RoomRow
+                    key={r.code}
+                    room={r}
+                    onJoin={() => onJoin(r.code)}
+                    onRemove={() => onRemove(r.code)}
+                  />
+                ))}
+              </ul>
+            </div>
+          ))}
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Bucket events by their relationship to today. Undated entries (no
+ * startDate, no ongoing flag) end up in In progress — typically
+ * unfinished drafts the pro is still building.
+ */
+function groupEvents(recents) {
+  const today = todayIso()
+  const inProgress = []
+  const upcoming = []
+  const past = []
+  for (const r of recents) {
+    if (r.ongoing) {
+      inProgress.push(r)
+      continue
+    }
+    if (!r.startDate) {
+      inProgress.push(r)
+      continue
+    }
+    const end = r.endDate || r.startDate
+    if (today < r.startDate) upcoming.push(r)
+    else if (today > end) past.push(r)
+    else inProgress.push(r)
+  }
+  upcoming.sort((a, b) => (a.startDate || '').localeCompare(b.startDate || ''))
+  inProgress.sort((a, b) => (b.lastVisited || 0) - (a.lastVisited || 0))
+  past.sort((a, b) =>
+    (b.endDate || b.startDate || '').localeCompare(a.endDate || a.startDate || '')
+  )
+  return { inProgress, upcoming, past }
+}
+
+function todayIso() {
+  const d = new Date()
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /**

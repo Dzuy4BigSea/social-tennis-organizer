@@ -31,39 +31,49 @@ function nextPowerOfTwo(n) {
 }
 
 /**
+ * A bracket slot is a "bye" when the seed lies beyond the entrant
+ * field (filler past the next power of two) OR when the entrant at
+ * that seed is explicitly flagged as a bye. The latter is what lets
+ * pros pre-place byes against specific seeds.
+ */
+function seedIsBye(entrants, entrantsCount, seed) {
+  if (seed > entrantsCount) return true
+  if (!entrants) return false
+  const e = entrants.find(x => x.seed === seed)
+  return !!(e && e.isBye)
+}
+
+/**
  * Returns { matches, rounds, size } for a single-elimination bracket.
  *
- * Match shape:
- *   { id, round, slot, bracket: 'main',
- *     pA: { kind: 'seed' | 'winner', value },
- *     pB: { kind: 'seed' | 'winner', value },
- *     scoreA, scoreB, completed, winnerSlot }
+ * Accepts either a bare entrants count (legacy) or an `entrants`
+ * array. Passing entrants lets the generator honor explicit bye
+ * placeholders — `entrant.isBye === true` makes that seed slot a
+ * walkover, just like seeds beyond the field size.
  *
  * Round-1 matches reference seed numbers directly. Subsequent rounds
  * reference the match id whose winner advances into that slot. The
  * Live screen resolves these on render so it can show "Winner of
  * R1-M3" or the actual entrant name once that match is decided.
- *
- * Bye handling: when seed > entrantsCount the bye-side is null and
- * the match is auto-completed in favor of the seeded opponent. This
- * keeps the round-2 lookup logic uniform — it only ever asks "who
- * won r1-mX?" and gets a real answer either way.
  */
-export function generateSingleElimBracket(entrantsCount) {
+export function generateSingleElimBracket(entrantsOrCount) {
+  const entrants = Array.isArray(entrantsOrCount) ? entrantsOrCount : null
+  const entrantsCount = entrants ? entrants.length : entrantsOrCount
   if (entrantsCount < 2) return { matches: [], rounds: 0, size: 0 }
   const size = nextPowerOfTwo(entrantsCount)
   const slotOrder = standardSeedingOrder(size) // length = size
   const rounds = Math.log2(size)
   const matches = []
+  const isBye = (seed) => seedIsBye(entrants, entrantsCount, seed)
 
-  // Round 1: pair adjacent slots. A bye seed (> entrantsCount) makes
-  // the match an auto-walkover.
+  // Round 1: pair adjacent slots. A bye seed (> entrantsCount, or an
+  // entrant explicitly marked isBye) makes the match an auto-walkover.
   const r1Count = size / 2
   for (let m = 1; m <= r1Count; m++) {
     const seedA = slotOrder[(m - 1) * 2]
     const seedB = slotOrder[(m - 1) * 2 + 1]
-    const aBye = seedA > entrantsCount
-    const bBye = seedB > entrantsCount
+    const aBye = isBye(seedA)
+    const bBye = isBye(seedB)
     let scoreA = null
     let scoreB = null
     let completed = false
@@ -126,7 +136,7 @@ export function resolveSlot(bracket, slot) {
   if (!slot) return { kind: 'bye' }
   if (slot.kind === 'seed') {
     const e = bracket.entrants.find(x => x.seed === slot.value)
-    if (!e) return { kind: 'bye' }
+    if (!e || e.isBye) return { kind: 'bye' }
     return { kind: 'entrant', entrant: e }
   }
   // 'winner' / 'loser' both reference another match by id.
@@ -172,19 +182,22 @@ export function resolveSlot(bracket, slot) {
  * walkover, the LB match expecting its loser also auto-completes,
  * cascading downstream until every reachable bye is absorbed.
  */
-export function generateDoubleElimBracket(entrantsCount) {
+export function generateDoubleElimBracket(entrantsOrCount) {
+  const entrants = Array.isArray(entrantsOrCount) ? entrantsOrCount : null
+  const entrantsCount = entrants ? entrants.length : entrantsOrCount
   if (entrantsCount < 2) return { matches: [], rounds: 0, size: 0 }
   const size = nextPowerOfTwo(entrantsCount)
   const slotOrder = standardSeedingOrder(size)
   const K = Math.log2(size)
   const matches = []
+  const isBye = (seed) => seedIsBye(entrants, entrantsCount, seed)
 
   // ----- Winner's bracket -----
   for (let m = 1; m <= size / 2; m++) {
     const seedA = slotOrder[(m - 1) * 2]
     const seedB = slotOrder[(m - 1) * 2 + 1]
-    const aBye = seedA > entrantsCount
-    const bBye = seedB > entrantsCount
+    const aBye = isBye(seedA)
+    const bBye = isBye(seedB)
     let scoreA = null
     let scoreB = null
     let completed = false

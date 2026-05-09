@@ -75,8 +75,8 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
     if (entrants.length < 2) return
     ifAuthed(() => {
       const built = isDoubleElim
-        ? generateDoubleElimBracket(entrants.length)
-        : generateSingleElimBracket(entrants.length)
+        ? generateDoubleElimBracket(entrants)
+        : generateSingleElimBracket(entrants)
       dispatch({
         type: 'SET_BRACKET',
         payload: {
@@ -87,6 +87,21 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
           size: built.size,
           locked: true,
         },
+      })
+    })
+  }
+
+  function addBye() {
+    ifAuthed(() => {
+      if (!bracket) {
+        dispatch({
+          type: 'SET_BRACKET',
+          payload: { type: isDoubleElim ? 'doubleElim' : 'singleElim', entrants: [], matches: [] },
+        })
+      }
+      dispatch({
+        type: 'ADD_BRACKET_ENTRANT',
+        payload: { p1: 'BYE', p2: '', isBye: true },
       })
     })
   }
@@ -209,40 +224,49 @@ export default function SetupBracket({ state, dispatch, ifAuthed }) {
       </DndContext>
 
       {!locked && (
-        <div className="flex items-center gap-2">
-          <span className="w-7 shrink-0 text-center font-bold text-gray-300">
-            {entrants.length + 1}
-          </span>
-          <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
-            <input
-              type="text"
-              value={p1}
-              onChange={(e) => setP1(e.target.value)}
-              placeholder={isDoubles ? 'Player 1' : 'Player'}
-              className="flex-1 min-w-0 bg-white border-2 border-vinoy-border rounded-lg px-2 py-1 text-sm"
-              onKeyDown={(e) => e.key === 'Enter' && add()}
-            />
-            {isDoubles && (
-              <>
-                <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
-                <input
-                  type="text"
-                  value={p2}
-                  onChange={(e) => setP2(e.target.value)}
-                  placeholder="Player 2"
-                  className="flex-1 min-w-0 bg-white border-2 border-vinoy-border rounded-lg px-2 py-1 text-sm"
-                  onKeyDown={(e) => e.key === 'Enter' && add()}
-                />
-              </>
-            )}
+        <>
+          <div className="flex items-center gap-2">
+            <span className="w-7 shrink-0 text-center font-bold text-gray-300">
+              {entrants.length + 1}
+            </span>
+            <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                type="text"
+                value={p1}
+                onChange={(e) => setP1(e.target.value)}
+                placeholder={isDoubles ? 'Player 1' : 'Player'}
+                className="flex-1 min-w-0 bg-white border-2 border-vinoy-border rounded-lg px-2 py-1 text-sm"
+                onKeyDown={(e) => e.key === 'Enter' && add()}
+              />
+              {isDoubles && (
+                <>
+                  <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
+                  <input
+                    type="text"
+                    value={p2}
+                    onChange={(e) => setP2(e.target.value)}
+                    placeholder="Player 2"
+                    className="flex-1 min-w-0 bg-white border-2 border-vinoy-border rounded-lg px-2 py-1 text-sm"
+                    onKeyDown={(e) => e.key === 'Enter' && add()}
+                  />
+                </>
+              )}
+            </div>
+            <button
+              onClick={add}
+              className="shrink-0 px-3 py-1 rounded-lg bg-vinoy-green text-white text-sm font-semibold"
+            >
+              Add
+            </button>
           </div>
           <button
-            onClick={add}
-            className="shrink-0 px-3 py-1 rounded-lg bg-vinoy-green text-white text-sm font-semibold"
+            onClick={addBye}
+            className="mt-2 text-xs text-vinoy-ink/60 hover:text-vinoy-green underline"
+            title="Reserve a seed slot as a walkover"
           >
-            Add
+            + Add a bye
           </button>
-        </div>
+        </>
       )}
 
       <p className="text-xs text-vinoy-ink/60 mt-3">
@@ -277,16 +301,20 @@ function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemo
     opacity: isDragging ? 0.85 : 1,
   }
 
+  const seedBadgeClass = entrant.isBye
+    ? 'bg-vinoy-ink/30 text-white'
+    : 'bg-vinoy-green text-white'
+
   return (
     <li
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-2 bg-vinoy-cream rounded-xl px-3 py-2 ${
-        isDragging ? 'shadow-lg ring-2 ring-vinoy-green' : ''
-      }`}
+      className={`flex items-center gap-2 rounded-xl px-3 py-2 ${
+        entrant.isBye ? 'bg-white border border-dashed border-vinoy-border' : 'bg-vinoy-cream'
+      } ${isDragging ? 'shadow-lg ring-2 ring-vinoy-green' : ''}`}
     >
       {locked ? (
-        <span className="w-7 shrink-0 h-7 rounded-full bg-vinoy-green text-white text-xs font-bold flex items-center justify-center">
+        <span className={`w-7 shrink-0 h-7 rounded-full text-xs font-bold flex items-center justify-center ${seedBadgeClass}`}>
           {entrant.seed}
         </span>
       ) : (
@@ -294,36 +322,42 @@ function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemo
           type="button"
           {...attributes}
           {...listeners}
-          className="w-7 shrink-0 h-7 rounded-full bg-vinoy-green text-white text-xs font-bold flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
+          className={`w-7 shrink-0 h-7 rounded-full text-xs font-bold flex items-center justify-center cursor-grab active:cursor-grabbing touch-none ${seedBadgeClass}`}
           title="Drag to reorder"
           aria-label={`Reorder seed ${entrant.seed}`}
         >
           {entrant.seed}
         </button>
       )}
-      <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
-        <input
-          type="text"
-          value={entrant.p1}
-          disabled={locked}
-          onChange={(ev) => onChangeP1(ev.target.value)}
-          placeholder={isDoubles ? 'Player 1' : 'Player'}
-          className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
-        />
-        {isDoubles && (
-          <>
-            <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
-            <input
-              type="text"
-              value={entrant.p2}
-              disabled={locked}
-              onChange={(ev) => onChangeP2(ev.target.value)}
-              placeholder="Player 2"
-              className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
-            />
-          </>
-        )}
-      </div>
+      {entrant.isBye ? (
+        <span className="flex-1 min-w-0 text-vinoy-ink/60 italic uppercase tracking-wider text-xs">
+          BYE — walkover for the paired seed
+        </span>
+      ) : (
+        <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
+          <input
+            type="text"
+            value={entrant.p1}
+            disabled={locked}
+            onChange={(ev) => onChangeP1(ev.target.value)}
+            placeholder={isDoubles ? 'Player 1' : 'Player'}
+            className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
+          />
+          {isDoubles && (
+            <>
+              <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
+              <input
+                type="text"
+                value={entrant.p2}
+                disabled={locked}
+                onChange={(ev) => onChangeP2(ev.target.value)}
+                placeholder="Player 2"
+                className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
+              />
+            </>
+          )}
+        </div>
+      )}
       {!locked && (
         <button
           onClick={onRemove}

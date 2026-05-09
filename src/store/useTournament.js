@@ -50,6 +50,8 @@ export const initialState = {
     name: '',
     startDate: '',           // YYYY-MM-DD
     endDate: '',             // YYYY-MM-DD; blank when ongoing or single-day
+    startTime: '',           // HH:MM (24h); first ball
+    endTime: '',             // HH:MM (24h); optional
     ongoing: false,          // weekly/recurring play; dates ignored
     // Round-robin specific (kept here so existing feed-in events still
     // round-trip cleanly through the same field).
@@ -95,6 +97,8 @@ function migrate(state) {
         rating: tt.rating || '',
         startDate: tt.startDate || tt.date || '',
         endDate: tt.endDate || '',
+        startTime: tt.startTime || '',
+        endTime: tt.endTime || '',
         ongoing: typeof tt.ongoing === 'boolean' ? tt.ongoing : false,
         ...tt,
       },
@@ -271,6 +275,36 @@ function reducer(state, action) {
       }
     }
 
+    case 'SET_MATCH_SCHEDULE': {
+      const { divisionId, matchId, scheduledAt } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            matches: d.matches.map(m =>
+              m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
+            ),
+          }
+        }),
+      }
+    }
+
+    case 'SET_BRACKET_MATCH_SCHEDULE': {
+      if (!state.bracket) return state
+      const { matchId, scheduledAt } = action.payload
+      return {
+        ...state,
+        bracket: {
+          ...state.bracket,
+          matches: state.bracket.matches.map(m =>
+            m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
+          ),
+        },
+      }
+    }
+
     case 'START_LIVE':
       return { ...state, phase: 'live' }
 
@@ -287,11 +321,12 @@ function reducer(state, action) {
 
     case 'ADD_BRACKET_ENTRANT': {
       if (!state.bracket) return state
-      const { p1, p2 } = action.payload
+      const { p1, p2, isBye } = action.payload
       const entrant = {
         id: newId('ent'),
         p1: p1 || '',
         p2: p2 || '',
+        isBye: !!isBye,
         seed: (state.bracket.entrants?.length || 0) + 1,
       }
       return {

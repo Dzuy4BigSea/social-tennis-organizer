@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react'
 import { resolveSlot, entrantLabel } from '../utils/bracket.js'
+import { formatMatchTime } from '../utils/format.js'
 
 /**
  * Live view for a single-elimination bracket. Two stacked panels:
@@ -147,11 +148,14 @@ function NowPlayingCard({ match, onClick }) {
       onClick={onClick}
       className="w-full text-left bg-white rounded-2xl border-2 border-vinoy-green shadow-md overflow-hidden"
     >
-      <div className="bg-vinoy-green text-white px-4 py-2 flex items-center justify-between">
+      <div className="bg-vinoy-green text-white px-4 py-2 flex items-center justify-between flex-wrap gap-2">
         <span className="font-bold uppercase text-sm tracking-wide">
           Now playing
         </span>
-        <span className="text-sm">Round {match.round}</span>
+        <span className="text-sm">
+          Round {match.round}
+          {match.scheduledAt && ` · ${formatMatchTime(match.scheduledAt)}`}
+        </span>
       </div>
       <div className="p-4 space-y-2">
         <SideRow side={match.sideA} score={match.scoreA} />

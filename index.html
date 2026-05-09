@@ -81,6 +81,13 @@
         .no-print { display: none !important; }
         .print-only { display: block !important; }
         body { background: white; }
+        /* Strip the parchment dot pattern so paper isn't speckled. */
+        .vinoy-page-bg {
+          background-image: none !important;
+          background-color: white !important;
+        }
+        /* Tighter page margins so the bracket has room to breathe. */
+        @page { margin: 0.5in; }
       }
       .print-only { display: none; }
       .drag-overlay {

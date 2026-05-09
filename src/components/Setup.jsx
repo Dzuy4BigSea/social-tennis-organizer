@@ -112,7 +112,7 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome }) {
         </section>
       )}
 
-      {engine === 'singleElim' && (
+      {(engine === 'singleElim' || engine === 'doubleElim') && (
         <SetupBracket state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
       )}
 
@@ -153,7 +153,7 @@ function canGoLive(engine, divisions, bracket) {
   if (engine === 'roundRobin') {
     return divisions.length > 0 && divisions.every(d => d.locked)
   }
-  if (engine === 'singleElim') {
+  if (engine === 'singleElim' || engine === 'doubleElim') {
     return !!bracket?.locked && (bracket?.matches?.length || 0) > 0
   }
   return false

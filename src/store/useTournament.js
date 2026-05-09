@@ -8,6 +8,7 @@ import {
   trackRoomVisit,
 } from '../utils/share.js'
 import { generateSchedule } from '../utils/schedule.js'
+import { applyWalkoverPropagation } from '../utils/bracket.js'
 
 const STORAGE_KEY = 'feedin-tournament-state'
 
@@ -346,16 +347,20 @@ function reducer(state, action) {
       if (!state.bracket) return state
       const { matchId, scoreA, scoreB } = action.payload
       const winnerSlot = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
+      // Clone the matches array so propagation can mutate without
+      // touching the previous state. Walkover propagation cascades
+      // any newly-resolvable bye chains downstream — important for
+      // double-elim where a bye-side WB R1 walkover only resolves the
+      // matching LB R1 slot once the OTHER WB R1 match completes.
+      const nextMatches = state.bracket.matches.map(m =>
+        m.id === matchId
+          ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
+          : { ...m }
+      )
+      applyWalkoverPropagation(nextMatches)
       return {
         ...state,
-        bracket: {
-          ...state.bracket,
-          matches: state.bracket.matches.map(m =>
-            m.id === matchId
-              ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
-              : m
-          ),
-        },
+        bracket: { ...state.bracket, matches: nextMatches },
       }
     }
 

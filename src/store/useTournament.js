@@ -1,9 +1,11 @@
 import { useReducer, useEffect, useRef, useState } from 'react'
 import {
+  generateRoomCode,
   getRoomCodeFromURL,
   loadFromRoom,
   saveToRoom,
   setRoomCodeInURL,
+  trackRoomVisit,
 } from '../utils/share.js'
 import { generateSchedule } from '../utils/schedule.js'
 
@@ -17,7 +19,7 @@ function newId(prefix = 'id') {
 /**
  * State shape:
  * {
- *   phase: 'setup' | 'live',
+ *   phase: 'home' | 'setup' | 'live',
  *   tournament: {
  *     name,
  *     date,
@@ -38,7 +40,7 @@ function newId(prefix = 'id') {
  * }
  */
 export const initialState = {
-  phase: 'setup',
+  phase: 'home',
   tournament: {
     name: '',
     date: '',
@@ -56,14 +58,26 @@ export const initialState = {
  */
 function migrate(state) {
   if (!state || !state.tournament) return state
-  const t = state.tournament
-  if (Array.isArray(t.passes) && t.passes.length > 0) return state
-  const ws = typeof t.winningScore === 'number' ? t.winningScore : 7
-  const { winningScore: _ws, ...rest } = t
-  return {
-    ...state,
-    tournament: { ...rest, passes: [{ winningScore: ws }] },
+  let next = state
+  // Older saves stored a single tournament.winningScore instead of a
+  // passes array. Lift them into the new shape so existing rooms keep
+  // working after the multi-round update.
+  const t = next.tournament
+  if (!Array.isArray(t.passes) || t.passes.length === 0) {
+    const ws = typeof t.winningScore === 'number' ? t.winningScore : 7
+    const { winningScore: _ws, ...rest } = t
+    next = { ...next, tournament: { ...rest, passes: [{ winningScore: ws }] } }
   }
+  // Home-screen migration: if state has no anchoring room code, the
+  // user can't share or recover it from another device — route them
+  // to the home screen so they can either continue the draft or pick
+  // an existing tournament. The /feedin/#room=XXX deep-link path
+  // populates roomCode before this runs, so mid-event refreshes are
+  // unaffected.
+  if (!next.tournament.roomCode && next.phase !== 'home') {
+    next = { ...next, phase: 'home' }
+  }
+  return next
 }
 
 function reducer(state, action) {
@@ -226,6 +240,36 @@ function reducer(state, action) {
     case 'BACK_TO_SETUP':
       return { ...state, phase: 'setup' }
 
+    case 'GO_HOME':
+      // Preserve in-memory state so the home screen can offer
+      // "Continue draft" if work was abandoned mid-setup. The URL
+      // hash is cleared by the caller so a refresh lands on home.
+      return { ...state, phase: 'home' }
+
+    case 'START_NEW_TOURNAMENT': {
+      // Fresh tournament rooted to a brand-new room code so the
+      // hash-based deep link works from the very first keystroke.
+      const code = action.payload?.code || generateRoomCode()
+      return {
+        ...initialState,
+        phase: 'setup',
+        tournament: { ...initialState.tournament, roomCode: code },
+      }
+    }
+
+    case 'CONTINUE_DRAFT': {
+      // Existing local-only setup work gets a room code so it can be
+      // saved to the server and recovered from any device. Pairs,
+      // divisions, and tournament metadata are preserved.
+      if (state.tournament.roomCode) return { ...state, phase: 'setup' }
+      const code = action.payload?.code || generateRoomCode()
+      return {
+        ...state,
+        phase: 'setup',
+        tournament: { ...state.tournament, roomCode: code },
+      }
+    }
+
     case 'SET_ROOM_CODE':
       return { ...state, tournament: { ...state.tournament, roomCode: action.payload } }
 
@@ -279,7 +323,8 @@ export function useTournament() {
   const dirtyRef = useRef(false)
   const [saveStatus, setSaveStatus] = useState('idle') // 'idle'|'saving'|'saved'|'forbidden'|'error'
 
-  // On mount: if URL has a room code, hydrate from server.
+  // On mount: if URL has a room code, hydrate from server and record
+  // the visit so it appears in the home screen's recent list.
   useEffect(() => {
     const code = getRoomCodeFromURL()
     if (!code) return
@@ -290,6 +335,11 @@ export function useTournament() {
           payload: { ...loaded, tournament: { ...loaded.tournament, roomCode: code } },
         })
         setRoomCodeInURL(code)
+        trackRoomVisit({
+          code,
+          name: loaded.tournament?.name,
+          date: loaded.tournament?.date,
+        })
       }
     })
   }, [])
@@ -318,6 +368,14 @@ export function useTournament() {
         if (res.ok) {
           dirtyRef.current = false
           setSaveStatus('saved')
+          // Refresh the recent-rooms entry on every successful save
+          // so the tournament name/date displayed on the home screen
+          // stays in sync as the pro edits it.
+          trackRoomVisit({
+            code,
+            name: stateRef.current.tournament?.name,
+            date: stateRef.current.tournament?.date,
+          })
         } else if (res.status === 403) {
           setSaveStatus('forbidden')
         } else {
@@ -360,5 +418,55 @@ export function useTournament() {
     return () => clearInterval(id)
   }, [state.tournament.roomCode])
 
-  return { state, dispatch, saveStatus }
+  // Imperative navigation helpers exposed to the home screen and the
+  // back-to-home buttons. They wrap the dispatch + URL mirror so the
+  // address bar always reflects the active room (or the bare /feedin/
+  // path when at home), keeping refresh and bookmarking deterministic.
+
+  async function joinRoom(code) {
+    if (!code) return false
+    const upper = code.toUpperCase()
+    const loaded = await loadFromRoom(upper)
+    if (!loaded) return false
+    dispatch({
+      type: 'LOAD_STATE',
+      payload: { ...loaded, tournament: { ...loaded.tournament, roomCode: upper } },
+    })
+    setRoomCodeInURL(upper)
+    trackRoomVisit({
+      code: upper,
+      name: loaded.tournament?.name,
+      date: loaded.tournament?.date,
+    })
+    return true
+  }
+
+  function startNew() {
+    const code = generateRoomCode()
+    dispatch({ type: 'START_NEW_TOURNAMENT', payload: { code } })
+    setRoomCodeInURL(code)
+  }
+
+  function continueDraft() {
+    const code = state.tournament.roomCode || generateRoomCode()
+    dispatch({ type: 'CONTINUE_DRAFT', payload: { code } })
+    setRoomCodeInURL(code)
+  }
+
+  function goHome() {
+    dispatch({ type: 'GO_HOME' })
+    if (window.location.hash) {
+      history.replaceState(null, '', window.location.pathname)
+    }
+  }
+
+  return {
+    state,
+    dispatch,
+    saveStatus,
+    joinRoom,
+    startNew,
+    continueDraft,
+    goHome,
+  }
 }

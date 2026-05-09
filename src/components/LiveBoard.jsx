@@ -6,7 +6,7 @@ import Brand from './Brand.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
 
-export default function LiveBoard({ state, dispatch, saveStatus }) {
+export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
   const { tournament, divisions } = state
   const liveDivisions = divisions.filter(d => d.locked)
   const [activeId, setActiveId] = useState(liveDivisions[0]?.id ?? null)
@@ -37,7 +37,11 @@ export default function LiveBoard({ state, dispatch, saveStatus }) {
     <div className="max-w-5xl mx-auto px-3 py-4">
       <header className="mb-3">
         <div className="flex items-start justify-between gap-3 flex-wrap">
-          <Brand subtitle={tournament.name || 'Feed-In Tournament'} compact />
+          <Brand
+            subtitle={tournament.name || 'Feed-In Tournament'}
+            compact
+            onClick={onGoHome}
+          />
           <div className="flex items-center gap-2 flex-wrap">
             <SaveStatus
               status={saveStatus}
@@ -52,6 +56,13 @@ export default function LiveBoard({ state, dispatch, saveStatus }) {
                 Pro mode
               </button>
             )}
+            <button
+              onClick={onGoHome}
+              className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"
+              title="Back to home"
+            >
+              Home
+            </button>
             <button
               onClick={() => ifAuthed(() => dispatch({ type: 'BACK_TO_SETUP' }))}
               className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"

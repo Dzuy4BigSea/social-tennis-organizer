@@ -3,11 +3,54 @@ const API = './tennis-save.php'
 // Unambiguous characters — easy to read aloud or type on mobile
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const PIN_KEY = 'feedin-pin' // stored in localStorage, scoped per device
+const RECENT_KEY = 'feedin-recent-rooms'
+const RECENT_LIMIT = 10
 
 export function generateRoomCode() {
   return Array.from({ length: 6 }, () =>
     CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]
   ).join('')
+}
+
+/**
+ * Per-device cache of room codes the pro has visited. Powers the
+ * "Recent tournaments" list on the home screen so they can hop
+ * between events without re-typing the code or hunting for a link.
+ *
+ * Stored locally only — server-side has no notion of "which device
+ * touched this room." That's fine for the single-club use case, and
+ * keeps room visibility explicit: only people who've been handed the
+ * link can navigate to a tournament.
+ */
+export function getRecentRooms() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY)
+    const list = raw ? JSON.parse(raw) : []
+    return Array.isArray(list) ? list : []
+  } catch {
+    return []
+  }
+}
+
+export function trackRoomVisit({ code, name, date }) {
+  if (!code) return
+  try {
+    const list = getRecentRooms().filter(r => r.code !== code)
+    list.unshift({
+      code,
+      name: name || '',
+      date: date || '',
+      lastVisited: Date.now(),
+    })
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_LIMIT)))
+  } catch {}
+}
+
+export function removeRecentRoom(code) {
+  try {
+    const list = getRecentRooms().filter(r => r.code !== code)
+    localStorage.setItem(RECENT_KEY, JSON.stringify(list))
+  } catch {}
 }
 
 export function getStoredPin() {

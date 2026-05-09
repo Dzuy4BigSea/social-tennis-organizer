@@ -1,10 +1,5 @@
 import React, { useState } from 'react'
 import {
-  generateSingleElimBracket,
-  generateDoubleElimBracket,
-} from '../utils/bracket.js'
-import { getEventType } from '../utils/eventTypes.js'
-import {
   DndContext,
   PointerSensor,
   TouchSensor,
@@ -33,12 +28,9 @@ import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifi
  * bracket. Driving both single- and double-elim from one component
  * keeps the setup ritual identical — only the generator differs.
  */
-export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntrantKind, onRemove }) {
-  // entrant kind comes from the parent event for legacy single-bracket
-  // events; future per-bracket overrides could thread it through too.
-  const isDoubles =
-    bracket.entrantKind === 'doubles' || defaultEntrantKind === 'doubles'
-  const isDoubleElim = bracket.type === 'doubleElim'
+export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) {
+  const isDoubles = bracket.entrantKind === 'doubles'
+  const isDoubleElim = bracket.kind === 'doubleElim'
   const entrants = bracket.entrants || []
   const drawSize = bracket.size || 0
   const [p1, setP1] = useState('')
@@ -58,8 +50,8 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
     if (!a && !b) return
     ifAuthed(() => {
       dispatch({
-        type: 'ADD_BRACKET_ENTRANT',
-        payload: { bracketId: bracket.id, p1: a, p2: b },
+        type: 'ADD_ENTRANT',
+        payload: { divisionId: bracket.id, p1: a, p2: b },
       })
       setP1('')
       setP2('')
@@ -69,20 +61,11 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
   function generate() {
     if (entrants.length < 2) return
     ifAuthed(() => {
-      const built = isDoubleElim
-        ? generateDoubleElimBracket(entrants)
-        : generateSingleElimBracket(entrants)
+      // The reducer is kind-aware — LOCK_DIVISION builds the bracket
+      // shape (single or double elim) based on division.kind.
       dispatch({
-        type: 'UPDATE_BRACKET',
-        payload: {
-          id: bracket.id,
-          patch: {
-            matches: built.matches,
-            rounds: built.rounds,
-            size: built.size,
-            locked: true,
-          },
-        },
+        type: 'LOCK_DIVISION',
+        payload: { divisionId: bracket.id },
       })
     })
   }
@@ -90,11 +73,8 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
   function unlock() {
     ifAuthed(() => {
       dispatch({
-        type: 'UPDATE_BRACKET',
-        payload: {
-          id: bracket.id,
-          patch: { matches: [], locked: false },
-        },
+        type: 'UNLOCK_DIVISION',
+        payload: { divisionId: bracket.id },
       })
     })
   }
@@ -102,8 +82,8 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
   function addBye() {
     ifAuthed(() => {
       dispatch({
-        type: 'ADD_BRACKET_ENTRANT',
-        payload: { bracketId: bracket.id, p1: 'BYE', p2: '', isBye: true },
+        type: 'ADD_ENTRANT',
+        payload: { divisionId: bracket.id, p1: 'BYE', p2: '', isBye: true },
       })
     })
   }
@@ -117,8 +97,8 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
       if (oldIndex < 0 || newIndex < 0) return
       const reordered = arrayMove(entrants, oldIndex, newIndex)
       dispatch({
-        type: 'REORDER_BRACKET_ENTRANTS',
-        payload: { bracketId: bracket.id, order: reordered.map(x => x.id) },
+        type: 'REORDER_ENTRANTS',
+        payload: { divisionId: bracket.id, order: reordered.map(x => x.id) },
       })
     })
   }
@@ -137,7 +117,7 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
             onChange={(e) =>
               ifAuthed(() =>
                 dispatch({
-                  type: 'UPDATE_BRACKET',
+                  type: 'UPDATE_DIVISION',
                   payload: { id: bracket.id, patch: { name: e.target.value } },
                 })
               )
@@ -212,24 +192,24 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, defaultEntra
                 onChangeP1={(val) =>
                   ifAuthed(() =>
                     dispatch({
-                      type: 'UPDATE_BRACKET_ENTRANT',
-                      payload: { bracketId: bracket.id, id: e.id, patch: { p1: val } },
+                      type: 'UPDATE_ENTRANT',
+                      payload: { divisionId: bracket.id, id: e.id, patch: { p1: val } },
                     })
                   )
                 }
                 onChangeP2={(val) =>
                   ifAuthed(() =>
                     dispatch({
-                      type: 'UPDATE_BRACKET_ENTRANT',
-                      payload: { bracketId: bracket.id, id: e.id, patch: { p2: val } },
+                      type: 'UPDATE_ENTRANT',
+                      payload: { divisionId: bracket.id, id: e.id, patch: { p2: val } },
                     })
                   )
                 }
                 onRemove={() =>
                   ifAuthed(() =>
                     dispatch({
-                      type: 'REMOVE_BRACKET_ENTRANT',
-                      payload: { bracketId: bracket.id, id: e.id },
+                      type: 'REMOVE_ENTRANT',
+                      payload: { divisionId: bracket.id, id: e.id },
                     })
                   )
                 }

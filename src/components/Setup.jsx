@@ -4,26 +4,19 @@ import PinGate, { PinSetup } from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import SetupBracket from './SetupBracket.jsx'
-import ComingSoon from './ComingSoon.jsx'
 import SchedulePanel from './SchedulePanel.jsx'
 import OrnamentalRule from './OrnamentalRule.jsx'
-import {
-  getEventType,
-  VARIANTS,
-  RATINGS_STANDARD,
-  RATINGS_COMBO,
-  getRatingLabel,
-} from '../utils/eventTypes.js'
+import AddDivisionDialog from './AddDivisionDialog.jsx'
+import { getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions } = state
-  const brackets = state.brackets || []
   const [showPinSetup, setShowPinSetup] = useState(false)
   const [showPinGate, setShowPinGate] = useState(false)
+  const [showAddDivision, setShowAddDivision] = useState(false)
 
   const proAuthed = !tournament.pinHash || Boolean(getStoredPin())
-  const evt = getEventType(tournament.type)
-  const engine = evt.engine
+  const anyLocked = (divisions || []).some(d => d.locked)
 
   function ensureRoomCode() {
     if (tournament.roomCode) return tournament.roomCode
@@ -43,8 +36,9 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
     else setShowPinGate(true)
   }
 
-  function handleGoHome() {
-    onGoHome?.()
+  function handleAddDivision(payload) {
+    ifAuthed(() => dispatch({ type: 'ADD_DIVISION', payload }))
+    setShowAddDivision(false)
   }
 
   return (
@@ -54,7 +48,7 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         roomCode={tournament.roomCode}
         onRoomCode={ensureRoomCode}
         onSetPin={() => setShowPinSetup(true)}
-        onGoHome={handleGoHome}
+        onGoHome={onGoHome}
         onPrint={onPrint}
         saveStatus={saveStatus}
         onFixPin={() => setShowPinGate(true)}
@@ -62,10 +56,9 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
 
       <EventDetailsCard
         tournament={tournament}
-        evt={evt}
         ifAuthed={ifAuthed}
         dispatch={dispatch}
-        rrLocked={divisions.some(d => d.locked) || !!bracket?.locked}
+        anyLocked={anyLocked}
       />
 
       {!tournament.pinHash && (
@@ -82,103 +75,54 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         </div>
       )}
 
-      {/* Divisions (round-robin draws). Always shown for roundRobin
-          events; otherwise shown only when the pro has actually added
-          a division so the page stays clean. */}
-      {(engine === 'roundRobin' || divisions.length > 0) && (
-        <section className="mb-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-display text-xl font-bold text-vinoy-green">Round-robin divisions</h2>
-            <button
-              onClick={() =>
-                ifAuthed(() => dispatch({ type: 'ADD_DIVISION', payload: { name: '' } }))
-              }
-              className="px-3 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm"
-            >
-              + Add Division
-            </button>
-          </div>
+      <section className="mb-2">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h2 className="font-display text-xl font-bold text-vinoy-green">Divisions</h2>
+          <button
+            onClick={() => setShowAddDivision(true)}
+            className="px-3 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm"
+          >
+            + Add division
+          </button>
+        </div>
 
-          {divisions.length === 0 ? (
-            <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60">
-              No round-robin divisions yet. Add one to start
-              (e.g. <em>Mens 4.0/Open</em>).
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {divisions.map((d) => (
-                <DivisionCard
+        {divisions.length === 0 ? (
+          <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60 mb-4">
+            No divisions yet. Add one to start (e.g.{' '}
+            <em>Men's 4.0 Single Elim</em> or <em>Mixed 3.5 Round Robin</em>).
+          </div>
+        ) : (
+          <div className="space-y-3 mb-4">
+            {divisions.map(d =>
+              d.kind === 'roundRobin' ? (
+                <RoundRobinDivisionCard
                   key={d.id}
                   division={d}
                   dispatch={dispatch}
                   ifAuthed={ifAuthed}
-                  entrantKind={evt.entrantKind}
                 />
-              ))}
-            </div>
-          )}
-        </section>
-      )}
-
-      {/* Brackets (elimination draws). Always available unless this is
-          a coming-soon stub event, so a single tournament can mix
-          round-robin divisions with bracket draws. */}
-      {engine !== 'comingSoon' && (
-        <section className="mb-2">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <h2 className="font-display text-xl font-bold text-vinoy-green">Brackets</h2>
-            <div className="flex gap-2">
-              <button
-                onClick={() =>
-                  ifAuthed(() => dispatch({ type: 'ADD_BRACKET', payload: { kind: 'singleElim' } }))
-                }
-                className="px-3 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm"
-              >
-                + Single Elim
-              </button>
-              <button
-                onClick={() =>
-                  ifAuthed(() => dispatch({ type: 'ADD_BRACKET', payload: { kind: 'doubleElim' } }))
-                }
-                className="px-3 py-2 rounded-xl border border-vinoy-green text-vinoy-green font-semibold text-sm"
-              >
-                + Double Elim
-              </button>
-            </div>
+              ) : (
+                <SetupBracket
+                  key={d.id}
+                  bracket={d}
+                  dispatch={dispatch}
+                  ifAuthed={ifAuthed}
+                  onRemove={() =>
+                    ifAuthed(() => {
+                      if (confirm(`Remove division "${d.name || 'unnamed'}"?`))
+                        dispatch({ type: 'REMOVE_DIVISION', payload: d.id })
+                    })
+                  }
+                />
+              )
+            )}
           </div>
-          {brackets.length === 0 ? (
-            <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60 mb-4">
-              No brackets yet. Add a single- or double-elimination draw above
-              to start placing entrants.
-            </div>
-          ) : (
-            brackets.map(b => (
-              <SetupBracket
-                key={b.id}
-                bracket={b}
-                dispatch={dispatch}
-                ifAuthed={ifAuthed}
-                defaultEntrantKind={evt.entrantKind}
-                onRemove={
-                  brackets.length > 1
-                    ? () =>
-                        ifAuthed(() => {
-                          if (confirm(`Remove bracket "${b.name || 'unnamed'}"?`))
-                            dispatch({ type: 'REMOVE_BRACKET', payload: { id: b.id } })
-                        })
-                    : undefined
-                }
-              />
-            ))
-          )}
-        </section>
-      )}
-
-      {engine === 'comingSoon' && <ComingSoon state={state} />}
+        )}
+      </section>
 
       <SchedulePanel state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
 
-      {canGoLive(engine, divisions, brackets) && (
+      {anyLocked && (
         <div className="sticky bottom-4 mt-6 z-30">
           <button
             onClick={() => ifAuthed(() => dispatch({ type: 'START_LIVE' }))}
@@ -189,6 +133,13 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         </div>
       )}
 
+      {showAddDivision && (
+        <AddDivisionDialog
+          defaults={tournament.defaults || {}}
+          onCreate={handleAddDivision}
+          onClose={() => setShowAddDivision(false)}
+        />
+      )}
       {showPinSetup && (
         <PinSetup onSet={handlePinSet} onClose={() => setShowPinSetup(false)} />
       )}
@@ -204,29 +155,12 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
 }
 
 /**
- * Returns true when the current setup is complete enough to flip
- * into the Live phase. Round-robin needs at least one locked
- * division; bracket events need a generated draw; coming-soon types
- * never enter the live phase from this screen.
+ * Top card for the event itself: name, dates, times, ongoing flag,
+ * and the round-count editor for round-robin divisions. Variant /
+ * rating / format used to live here too — they've moved into the
+ * Add Division dialog so each division can hold its own values.
  */
-function canGoLive(engine, divisions, brackets) {
-  // The Live screen needs at least one locked draw of any kind. Mixed
-  // events (e.g. one round-robin + one bracket) are fine to start as
-  // long as something has play queued up.
-  const hasLockedDivision = divisions.length > 0 && divisions.some(d => d.locked)
-  const hasLockedBracket =
-    brackets && brackets.length > 0 && brackets.some(b => b.locked && (b.matches?.length || 0) > 0)
-  if (engine === 'comingSoon') return false
-  return hasLockedDivision || hasLockedBracket
-}
-
-/**
- * Top card for any event type: name, type label, variant chips,
- * rating chips, and dates. Round-robin events also include the
- * Rounds editor in here so the per-pass target lives next to the
- * other event metadata rather than buried below the divisions list.
- */
-function EventDetailsCard({ tournament, evt, ifAuthed, dispatch, rrLocked }) {
+function EventDetailsCard({ tournament, ifAuthed, dispatch, anyLocked }) {
   function set(patch) {
     ifAuthed(() => dispatch({ type: 'SET_TOURNAMENT', payload: patch }))
   }
@@ -236,9 +170,6 @@ function EventDetailsCard({ tournament, evt, ifAuthed, dispatch, rrLocked }) {
         <h2 className="font-display text-xl font-bold text-vinoy-green">
           Event details
         </h2>
-        <span className="text-xs uppercase tracking-wider px-2 py-0.5 rounded bg-vinoy-cream border border-vinoy-border text-vinoy-ink/70">
-          {evt.label}
-        </span>
       </div>
 
       <label className="block mb-3">
@@ -247,61 +178,10 @@ function EventDetailsCard({ tournament, evt, ifAuthed, dispatch, rrLocked }) {
           type="text"
           value={tournament.name}
           onChange={(e) => set({ name: e.target.value })}
-          placeholder="e.g. Spring Mixer 4.0"
+          placeholder="e.g. Spring Mixer 2026"
           className="mt-1 w-full border-2 border-vinoy-border rounded-xl px-3 py-2 focus:border-vinoy-green focus:outline-none"
         />
       </label>
-
-      <div className="mb-3">
-        <div className="text-xs font-semibold text-vinoy-ink/70 mb-1">Variant</div>
-        <div className="flex flex-wrap gap-2">
-          {VARIANTS.map(v => (
-            <Chip
-              key={v.id}
-              active={tournament.variant === v.id}
-              onClick={() => set({ variant: v.id })}
-              label={v.label}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="mb-3">
-        <div className="text-xs font-semibold text-vinoy-ink/70 mb-1">
-          Rating {tournament.rating && (
-            <span className="font-normal text-vinoy-ink/50">
-              · {getRatingLabel(tournament.rating)}
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {RATINGS_STANDARD.map(r => (
-            <Chip
-              key={r.id}
-              active={tournament.rating === r.id}
-              onClick={() => set({ rating: tournament.rating === r.id ? '' : r.id })}
-              label={r.label}
-              small
-            />
-          ))}
-        </div>
-        <details className="mt-2 text-xs">
-          <summary className="cursor-pointer text-vinoy-ink/60 hover:text-vinoy-green select-none">
-            Combo ratings
-          </summary>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {RATINGS_COMBO.map(r => (
-              <Chip
-                key={r.id}
-                active={tournament.rating === r.id}
-                onClick={() => set({ rating: tournament.rating === r.id ? '' : r.id })}
-                label={r.label}
-                small
-              />
-            ))}
-          </div>
-        </details>
-      </div>
 
       <div className="border-t border-vinoy-border pt-3">
         <label className="flex items-center gap-2 mb-3 cursor-pointer">
@@ -359,37 +239,22 @@ function EventDetailsCard({ tournament, evt, ifAuthed, dispatch, rrLocked }) {
         )}
       </div>
 
-      {evt.engine === 'roundRobin' && (
-        <RoundsEditor
-          passes={tournament.passes}
-          locked={rrLocked}
-          onChange={(passes) =>
-            ifAuthed(() => dispatch({ type: 'SET_PASSES', payload: passes }))
-          }
-        />
-      )}
+      <RoundsEditor
+        passes={tournament.passes}
+        locked={anyLocked}
+        onChange={(passes) =>
+          ifAuthed(() => dispatch({ type: 'SET_PASSES', payload: passes }))
+        }
+      />
     </section>
   )
 }
 
-function Chip({ active, onClick, label, small }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'rounded-full border-2 transition font-semibold',
-        small ? 'px-3 py-1 text-xs' : 'px-4 py-1.5 text-sm',
-        active
-          ? 'bg-vinoy-green border-vinoy-green text-white'
-          : 'bg-white border-vinoy-border text-vinoy-ink/70 hover:border-vinoy-green hover:text-vinoy-green',
-      ].join(' ')}
-    >
-      {label}
-    </button>
-  )
-}
-
+/**
+ * Per-pass winning-score editor. Round-robin divisions read this
+ * pass list when generating their schedule, so changes after a draw
+ * is locked have no effect (the schedule's already baked).
+ */
 function RoundsEditor({ passes, locked, onChange }) {
   const list = passes && passes.length ? passes : [{ winningScore: 7 }]
 
@@ -408,19 +273,22 @@ function RoundsEditor({ passes, locked, onChange }) {
   }
 
   return (
-    <div className="mt-4 pt-4 border-t border-gray-100">
+    <div className="mt-4 pt-4 border-t border-vinoy-border">
       <div className="flex items-center justify-between mb-2">
         <div>
-          <div className="text-sm font-semibold text-gray-700">Rounds</div>
-          <div className="text-xs text-gray-500">
-            Each round is a full round-robin. Set a target score per round.
+          <div className="text-sm font-semibold text-vinoy-ink/80">
+            Round-robin rounds
+          </div>
+          <div className="text-xs text-vinoy-ink/60">
+            New round-robin divisions use this pass list. Set a target
+            score per round.
           </div>
         </div>
         {!locked && (
           <button
             type="button"
             onClick={add}
-            className="px-3 py-1.5 rounded-lg border border-tennis-green text-tennis-green text-sm font-semibold"
+            className="px-3 py-1.5 rounded-lg border border-vinoy-green text-vinoy-green text-sm font-semibold"
           >
             + Round
           </button>
@@ -428,19 +296,20 @@ function RoundsEditor({ passes, locked, onChange }) {
       </div>
       {locked && (
         <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg px-3 py-2 mb-2">
-          Schedule already generated. Unlock divisions to change the round count.
+          A division has already been generated. Unlock it to change
+          the round count.
         </p>
       )}
       <ol className="space-y-2">
         {list.map((p, idx) => (
           <li
             key={idx}
-            className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2"
+            className="flex items-center gap-3 bg-vinoy-cream rounded-xl px-3 py-2"
           >
-            <span className="w-8 h-8 rounded-full bg-tennis-green text-white flex items-center justify-center font-bold text-sm">
+            <span className="w-8 h-8 rounded-full bg-vinoy-green text-white flex items-center justify-center font-bold text-sm">
               {idx + 1}
             </span>
-            <span className="text-sm text-gray-700 flex-1">First to</span>
+            <span className="text-sm text-vinoy-ink/80 flex-1">First to</span>
             <input
               type="number"
               min="1"
@@ -448,14 +317,14 @@ function RoundsEditor({ passes, locked, onChange }) {
               value={p.winningScore}
               disabled={locked}
               onChange={(e) => update(idx, e.target.value)}
-              className="w-20 text-center text-lg font-bold border-2 border-gray-200 rounded-lg px-2 py-1 focus:border-tennis-green focus:outline-none disabled:bg-gray-100"
+              className="w-20 text-center text-lg font-bold border-2 border-vinoy-border rounded-lg px-2 py-1 focus:border-vinoy-green focus:outline-none disabled:bg-gray-100"
             />
-            <span className="text-sm text-gray-500">games</span>
+            <span className="text-sm text-vinoy-ink/60">games</span>
             {!locked && list.length > 1 && (
               <button
                 type="button"
                 onClick={() => remove(idx)}
-                className="text-gray-400 hover:text-red-600 px-1"
+                className="text-vinoy-ink/40 hover:text-red-600 px-1"
                 title="Remove round"
               >
                 ✕
@@ -472,7 +341,6 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
   const shareUrl = roomCode
     ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
     : ''
-
   return (
     <header className="mb-5">
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
@@ -533,18 +401,24 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
   )
 }
 
-function DivisionCard({ division, dispatch, ifAuthed, entrantKind = 'doubles' }) {
+/**
+ * Setup card for one round-robin division. Variant / rating /
+ * entrant-kind chips up top — read-only labels here since they were
+ * picked in the Add Division dialog and changing them after the fact
+ * usually means the wrong division was added.
+ */
+function RoundRobinDivisionCard({ division, dispatch, ifAuthed }) {
   const { id, name, courtLabel, pairs, locked } = division
   const [expanded, setExpanded] = useState(true)
   const canLock = pairs.length >= 2
-  const isDoubles = entrantKind !== 'singles'
+  const isDoubles = division.entrantKind !== 'singles'
 
   return (
     <div className="bg-white rounded-2xl border border-vinoy-border shadow-sm">
       <div className="p-4 flex items-center gap-3 flex-wrap">
         <button
           onClick={() => setExpanded((e) => !e)}
-          className="text-gray-400 text-lg"
+          className="text-vinoy-ink/40 text-lg"
           aria-label="toggle"
         >
           {expanded ? '▾' : '▸'}
@@ -560,13 +434,13 @@ function DivisionCard({ division, dispatch, ifAuthed, entrantKind = 'doubles' })
               })
             )
           }
-          placeholder="Division name (e.g. Mens 4.0/Open)"
-          className="flex-1 min-w-[10rem] font-bold text-lg text-gray-900 bg-transparent focus:outline-none border-b border-transparent focus:border-tennis-green"
+          placeholder="Division name (e.g. Men's 4.0)"
+          className="flex-1 min-w-[10rem] font-bold text-lg text-vinoy-ink bg-transparent focus:outline-none border-b border-transparent focus:border-vinoy-green"
           disabled={locked}
         />
         <input
           type="text"
-          value={courtLabel}
+          value={courtLabel || ''}
           onChange={(e) =>
             ifAuthed(() =>
               dispatch({
@@ -576,7 +450,7 @@ function DivisionCard({ division, dispatch, ifAuthed, entrantKind = 'doubles' })
             )
           }
           placeholder="Court"
-          className="w-20 text-sm text-center border border-gray-200 rounded-lg px-2 py-1"
+          className="w-20 text-sm text-center border border-vinoy-border rounded-lg px-2 py-1"
           disabled={locked}
         />
         {locked ? (
@@ -599,7 +473,7 @@ function DivisionCard({ division, dispatch, ifAuthed, entrantKind = 'doubles' })
                 )
               }
               disabled={!canLock}
-              className="px-3 py-2 rounded-xl bg-tennis-green text-white text-sm font-semibold disabled:opacity-40"
+              className="px-3 py-2 rounded-xl bg-vinoy-green text-white text-sm font-semibold disabled:opacity-40"
             >
               Generate Schedule
             </button>
@@ -610,13 +484,17 @@ function DivisionCard({ division, dispatch, ifAuthed, entrantKind = 'doubles' })
                     dispatch({ type: 'REMOVE_DIVISION', payload: id })
                 })
               }
-              className="px-2 py-2 rounded-xl text-gray-400 hover:text-red-600"
+              className="px-2 py-2 rounded-xl text-vinoy-ink/40 hover:text-red-600"
               title="Remove"
             >
               ✕
             </button>
           </>
         )}
+      </div>
+
+      <div className="px-4 pb-2 -mt-2 flex items-center gap-1.5 flex-wrap">
+        <DivisionMeta division={division} />
       </div>
 
       {expanded && (
@@ -636,6 +514,31 @@ function DivisionCard({ division, dispatch, ifAuthed, entrantKind = 'doubles' })
         </div>
       )}
     </div>
+  )
+}
+
+/** Read-only chip strip showing variant / rating / entrantKind. */
+function DivisionMeta({ division }) {
+  const variantLabel =
+    division.variant && division.variant !== 'all'
+      ? getVariant(division.variant).label
+      : 'All'
+  const ratingLabel = getRatingLabel(division.rating)
+  const entrantLabel = division.entrantKind === 'doubles' ? 'Doubles' : 'Singles'
+  return (
+    <>
+      <MetaChip>{variantLabel}</MetaChip>
+      {ratingLabel && <MetaChip>{ratingLabel}</MetaChip>}
+      <MetaChip>{entrantLabel}</MetaChip>
+    </>
+  )
+}
+
+function MetaChip({ children }) {
+  return (
+    <span className="text-[10px] uppercase tracking-wider px-2 py-0.5 rounded-full bg-vinoy-cream border border-vinoy-border text-vinoy-ink/70">
+      {children}
+    </span>
   )
 }
 
@@ -689,7 +592,7 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true }) {
               />
               {isDoubles && (
                 <>
-                  <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
+                  <span className="hidden sm:inline text-vinoy-ink/30 shrink-0">/</span>
                   <input
                     type="text"
                     value={pair.p2}
@@ -722,7 +625,7 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true }) {
                     })
                   )
                 }
-                className="shrink-0 text-gray-400 hover:text-red-600 px-1"
+                className="shrink-0 text-vinoy-ink/40 hover:text-red-600 px-1"
                 title="Remove pair"
               >
                 ✕
@@ -734,7 +637,7 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true }) {
 
       {!locked && (
         <div className="flex items-center gap-2">
-          <span className="w-6 shrink-0 text-center font-bold text-gray-300">
+          <span className="w-6 shrink-0 text-center font-bold text-vinoy-ink/30">
             {pairs.length + 1}
           </span>
           <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
@@ -748,7 +651,7 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true }) {
             />
             {isDoubles && (
               <>
-                <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
+                <span className="hidden sm:inline text-vinoy-ink/30 shrink-0">/</span>
                 <input
                   type="text"
                   value={p2}

@@ -27,7 +27,7 @@ export default function LiveBracket({ bracket, dispatch, ifAuthed, proAuthed }) 
     )
   }
 
-  const isDoubleElim = bracket.type === 'doubleElim'
+  const isDoubleElim = bracket.kind === 'doubleElim'
   const visibleMatches = isDoubleElim
     ? enriched.filter(m => m.bracket !== 'reset' || isResetNeeded(enriched))
     : enriched
@@ -77,7 +77,7 @@ export default function LiveBracket({ bracket, dispatch, ifAuthed, proAuthed }) 
       {editing && (
         <BracketScoreModal
           match={enriched.find(m => m.id === editing.id) || editing}
-          bracketId={bracket.id}
+          divisionId={bracket.id}
           dispatch={dispatch}
           onClose={() => setEditing(null)}
         />
@@ -428,7 +428,7 @@ function Side({ side, score, winner }) {
   )
 }
 
-function BracketScoreModal({ match, bracketId, dispatch, onClose }) {
+function BracketScoreModal({ match, divisionId, dispatch, onClose }) {
   const [scoreA, setScoreA] = useState(String(match.scoreA ?? ''))
   const [scoreB, setScoreB] = useState(String(match.scoreB ?? ''))
 
@@ -444,7 +444,7 @@ function BracketScoreModal({ match, bracketId, dispatch, onClose }) {
     if (a === b) return alert('A bracket match must have a winner.')
     dispatch({
       type: 'RECORD_BRACKET_SCORE',
-      payload: { bracketId, matchId: match.id, scoreA: a, scoreB: b },
+      payload: { divisionId, matchId: match.id, scoreA: a, scoreB: b },
     })
     onClose?.()
   }
@@ -453,7 +453,7 @@ function BracketScoreModal({ match, bracketId, dispatch, onClose }) {
     if (!confirm('Clear this score and put the match back in play?')) return
     dispatch({
       type: 'CLEAR_BRACKET_SCORE',
-      payload: { bracketId, matchId: match.id },
+      payload: { divisionId, matchId: match.id },
     })
     onClose?.()
   }

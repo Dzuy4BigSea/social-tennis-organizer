@@ -1,6 +1,5 @@
 import React from 'react'
 import { resolveSlot, entrantLabel } from '../utils/bracket.js'
-import { getEventType } from '../utils/eventTypes.js'
 
 /**
  * Per-match scheduling editor. Lets the pro stamp each match with a
@@ -11,12 +10,10 @@ import { getEventType } from '../utils/eventTypes.js'
  * no real meaning.
  */
 export default function SchedulePanel({ state, dispatch, ifAuthed }) {
-  const { divisions } = state
-  const lockedDivs = divisions.filter(d => d.locked)
-  const lockedBrackets = (state.brackets || []).filter(
-    b => b.locked && (b.matches?.length || 0) > 0
+  const lockedDivs = (state.divisions || []).filter(
+    d => d.locked && (d.matches?.length || 0) > 0
   )
-  if (lockedDivs.length === 0 && lockedBrackets.length === 0) return null
+  if (lockedDivs.length === 0) return null
 
   return (
     <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
@@ -29,30 +26,36 @@ export default function SchedulePanel({ state, dispatch, ifAuthed }) {
         </span>
       </div>
       {lockedDivs.map(d => (
-        <RoundRobinDivisionSchedule
-          key={d.id}
-          division={d}
-          dispatch={dispatch}
-          ifAuthed={ifAuthed}
-        />
-      ))}
-      {lockedBrackets.map(b => (
-        <div key={b.id} className="mb-4 last:mb-0">
+        <div key={d.id} className="mb-4 last:mb-0">
           <div className="text-sm font-semibold text-vinoy-ink/80 mb-1">
-            {b.name || 'Bracket'}
+            {d.name || 'Division'}
             <span className="ml-2 text-xs font-normal text-vinoy-ink/50">
-              {b.type === 'doubleElim' ? 'Double Elim' : 'Single Elim'}
+              {kindLabel(d.kind)}
             </span>
           </div>
-          <BracketSchedule
-            bracket={b}
-            dispatch={dispatch}
-            ifAuthed={ifAuthed}
-          />
+          {d.kind === 'roundRobin' ? (
+            <RoundRobinDivisionSchedule
+              division={d}
+              dispatch={dispatch}
+              ifAuthed={ifAuthed}
+            />
+          ) : (
+            <BracketSchedule
+              bracket={d}
+              dispatch={dispatch}
+              ifAuthed={ifAuthed}
+            />
+          )}
         </div>
       ))}
     </section>
   )
+}
+
+function kindLabel(kind) {
+  if (kind === 'doubleElim') return 'Double Elim'
+  if (kind === 'singleElim') return 'Single Elim'
+  return 'Round Robin'
 }
 
 function RoundRobinDivisionSchedule({ division, dispatch, ifAuthed }) {
@@ -152,7 +155,7 @@ function BracketScheduleRow({ bracket, match, dispatch, ifAuthed }) {
             dispatch({
               type: 'SET_BRACKET_MATCH_SCHEDULE',
               payload: {
-                bracketId: bracket.id,
+                divisionId: bracket.id,
                 matchId: match.id,
                 scheduledAt: e.target.value,
               },
@@ -193,7 +196,7 @@ function groupForSchedule(bracket) {
   const wb = bracket.matches.filter(m => m.bracket === 'main')
   const lb = bracket.matches.filter(m => m.bracket === 'losers')
   const gf = bracket.matches.filter(m => m.bracket === 'grandFinal' || m.bracket === 'reset')
-  if (bracket.type === 'doubleElim') {
+  if (bracket.kind === 'doubleElim') {
     if (wb.length) groups.push({ title: "Winner's Bracket", matches: wb })
     if (lb.length) groups.push({ title: "Loser's Bracket", matches: lb })
     if (gf.length) groups.push({ title: 'Grand Final', matches: gf })

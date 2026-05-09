@@ -4,11 +4,17 @@ import {
   getRoomCodeFromURL,
   loadFromRoom,
   saveToRoom,
+  saveToRoomBeacon,
   setRoomCodeInURL,
   trackRoomVisit,
 } from '../utils/share.js'
 import { generateSchedule } from '../utils/schedule.js'
-import { applyWalkoverPropagation } from '../utils/bracket.js'
+import {
+  applyWalkoverPropagation,
+  generateSingleElimBracket,
+  generateDoubleElimBracket,
+} from '../utils/bracket.js'
+import { getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 const STORAGE_KEY = 'feedin-tournament-state'
 
@@ -22,20 +28,28 @@ function newId(prefix = 'id') {
  * {
  *   phase: 'home' | 'setup' | 'live',
  *   tournament: {
- *     name,
- *     date,
- *     passes: [{ winningScore }, ...],  // one entry per round; coaches set
- *                                       // a target score per round (e.g.
- *                                       // round 1 to 7, round 2 to 5)
- *     roomCode,
- *     pinHash,
+ *     name, dates/times, ongoing,
+ *     passes: [{ winningScore }, ...],  // event-level default for new RR divs
+ *     roomCode, pinHash,
+ *     defaults: { variant, rating, entrantKind },  // pre-fill the
+ *                                                  // Add Division dialog
  *   },
  *   divisions: [
+ *     // Each division is one draw. The `kind` discriminator decides
+ *     // which fields are populated:
  *     {
- *       id, name, courtLabel,
+ *       id, name,
+ *       kind: 'roundRobin' | 'singleElim' | 'doubleElim',
+ *       variant: 'all' | 'mens' | 'womens' | 'mixed',
+ *       rating, entrantKind: 'singles' | 'doubles',
+ *       courtLabel, locked,
+ *       // roundRobin only:
  *       pairs:   [{ id, label, p1, p2 }],
  *       matches: [{ id, pass, round, slot, pairA, pairB, bye, scoreA, scoreB, completed }],
- *       locked,
+ *       // singleElim/doubleElim only:
+ *       entrants: [{ id, p1, p2, isBye, seed }],
+ *       matches:  [{ id, round, slot, bracket, pA, pB, scoreA, scoreB, completed, winnerSlot }],
+ *       size, rounds,
  *     }
  *   ]
  * }
@@ -43,27 +57,26 @@ function newId(prefix = 'id') {
 export const initialState = {
   phase: 'home',
   tournament: {
-    // Event identity
-    type: 'feedIn',          // see src/utils/eventTypes.js
-    variant: 'all',          // 'all' | 'mens' | 'womens' | 'mixed'
-    rating: '',              // '' for unset; e.g. '4.0' or 'combo-8.0'
     name: '',
     startDate: '',           // YYYY-MM-DD
     endDate: '',             // YYYY-MM-DD; blank when ongoing or single-day
     startTime: '',           // HH:MM (24h); first ball
     endTime: '',             // HH:MM (24h); optional
     ongoing: false,          // weekly/recurring play; dates ignored
-    // Round-robin specific (kept here so existing feed-in events still
-    // round-trip cleanly through the same field).
+    // Default winning-score for newly-added round-robin divisions.
+    // Each RR division can override its own passes if the pro wants
+    // a different cap.
     passes: [{ winningScore: 7 }],
+    // Per-division settings used to pre-fill the Add Division dialog.
+    // Divisions stored in `divisions[]` carry their own copies.
+    defaults: { variant: 'all', rating: '', entrantKind: 'singles' },
     // Sharing/auth
     roomCode: null,
     pinHash: null,
-    // Legacy field, written by older clients. Kept for migration only.
-    date: '',
+    // Legacy fields, kept only so the migrator can read them.
+    type: undefined, variant: undefined, rating: undefined, date: '',
   },
-  divisions: [],   // round-robin draws
-  brackets: [],    // single/double-elim draws (multiple per event supported)
+  divisions: [],
 }
 
 /**
@@ -83,43 +96,68 @@ function migrate(state) {
     const { winningScore: _ws, ...rest } = t
     next = { ...next, tournament: { ...rest, passes: [{ winningScore: ws }] } }
   }
-  // Backfill the new event-identity fields. Pre-existing tournaments
-  // were always feed-in style, so default to that. `date` becomes
-  // `startDate` since the old single-date field was treated as the
-  // event's day.
+  // Pull the old event-level identity fields (type/variant/rating)
+  // out of `tournament` and into `tournament.defaults`, which is
+  // what the Add Division dialog reads to pre-fill new divisions.
+  // We hold on to the values rather than dropping them so the first
+  // division added to a migrated event still feels like the same
+  // event (e.g. "Men's 4.0" continues to be Men's 4.0).
   const tt = next.tournament
-  if (!tt.type || !tt.variant) {
+  if (!tt.defaults) {
+    const oldType = tt.type || 'feedIn'
+    const entrantKind = oldType.startsWith('doubles') ? 'doubles' : 'singles'
     next = {
       ...next,
       tournament: {
-        type: tt.type || 'feedIn',
-        variant: tt.variant || 'all',
-        rating: tt.rating || '',
-        startDate: tt.startDate || tt.date || '',
-        endDate: tt.endDate || '',
-        startTime: tt.startTime || '',
-        endTime: tt.endTime || '',
-        ongoing: typeof tt.ongoing === 'boolean' ? tt.ongoing : false,
         ...tt,
+        startDate: tt.startDate || tt.date || '',
+        defaults: {
+          variant: tt.variant || 'all',
+          rating: tt.rating || '',
+          entrantKind,
+        },
       },
     }
   }
-  // Bracket events used to store a single `bracket` field. Lift it
-  // into the `brackets` array so the rest of the app can assume
-  // many-per-event from now on.
-  if (!Array.isArray(next.brackets)) {
-    if (next.bracket && (next.bracket.entrants?.length || next.bracket.matches?.length)) {
-      const legacy = next.bracket
-      const seedName = next.tournament?.name || 'Bracket'
-      const { bracket: _drop, ...rest } = next
-      next = {
-        ...rest,
-        brackets: [{ id: 'br-legacy', name: seedName, ...legacy }],
-      }
-    } else {
-      const { bracket: _drop, ...rest } = next
-      next = { ...rest, brackets: [] }
-    }
+  // Unify divisions[] (round-robin) and brackets[] (elimination) into
+  // a single divisions[] array. Each entry gets a `kind` discriminator
+  // and inherits the event-level variant/rating/entrantKind so it
+  // round-trips cleanly. After this PR, brackets[] is gone.
+  const oldDefaults = next.tournament.defaults || { variant: 'all', rating: '', entrantKind: 'singles' }
+  const oldBrackets = Array.isArray(next.brackets) ? next.brackets : null
+  const needsDivisionMigration =
+    oldBrackets !== null ||
+    (next.divisions || []).some(d => !d.kind)
+  if (needsDivisionMigration) {
+    const fromDivisions = (next.divisions || []).map(d => ({
+      ...d,
+      kind: d.kind || 'roundRobin',
+      variant: d.variant || oldDefaults.variant,
+      rating: d.rating ?? oldDefaults.rating,
+      entrantKind: d.entrantKind || oldDefaults.entrantKind,
+    }))
+    const fromBrackets = (oldBrackets || []).map(b => ({
+      id: b.id || newId('div'),
+      name: b.name || 'Bracket',
+      courtLabel: b.courtLabel || '',
+      kind: b.type === 'doubleElim' ? 'doubleElim' : 'singleElim',
+      variant: b.variant || oldDefaults.variant,
+      rating: b.rating ?? oldDefaults.rating,
+      entrantKind: b.entrantKind || oldDefaults.entrantKind,
+      entrants: b.entrants || [],
+      matches: b.matches || [],
+      size: b.size || 0,
+      rounds: b.rounds || 0,
+      locked: !!b.locked,
+    }))
+    const { brackets: _drop, ...rest } = next
+    next = { ...rest, divisions: [...fromDivisions, ...fromBrackets] }
+  }
+  // Drop the legacy bracket field if it's still hanging around from
+  // the very old single-bracket save shape.
+  if ('bracket' in next) {
+    const { bracket: _b, ...rest } = next
+    next = rest
   }
   // Home-screen migration: if state has no anchoring room code, the
   // user can't share or recover it from another device — route them
@@ -142,15 +180,47 @@ function reducer(state, action) {
       return { ...state, phase: action.payload }
 
     case 'ADD_DIVISION': {
+      // Each division is one draw of one kind. The dialog passes kind
+      // / variant / rating / entrantKind explicitly so the new entry
+      // doesn't have to inherit from the event-level fields (those are
+      // just defaults for pre-filling the dialog now).
+      const {
+        kind = 'roundRobin',
+        name,
+        courtLabel,
+        variant,
+        rating,
+        entrantKind,
+      } = action.payload || {}
+      const defaults = state.tournament?.defaults || {}
+      const isBracket = kind === 'singleElim' || kind === 'doubleElim'
       const division = {
         id: newId('div'),
-        name: action.payload.name || 'New Division',
-        courtLabel: action.payload.courtLabel || '',
-        pairs: [],
-        matches: [],
+        name: name || autoName({ kind, variant, rating, entrantKind }, defaults),
+        courtLabel: courtLabel || '',
+        kind,
+        variant: variant || defaults.variant || 'all',
+        rating: rating ?? defaults.rating ?? '',
+        entrantKind: entrantKind || defaults.entrantKind || 'singles',
         locked: false,
+        ...(isBracket
+          ? { entrants: [], matches: [], size: 0, rounds: 0 }
+          : { pairs: [], matches: [] }),
       }
-      return { ...state, divisions: [...state.divisions, division] }
+      return {
+        ...state,
+        divisions: [...state.divisions, division],
+        tournament: {
+          ...state.tournament,
+          // Track the most recent settings so the Add Division dialog
+          // pre-fills the next round with the same shape.
+          defaults: {
+            variant: division.variant,
+            rating: division.rating,
+            entrantKind: division.entrantKind,
+          },
+        },
+      }
     }
 
     case 'UPDATE_DIVISION':
@@ -232,10 +302,28 @@ function reducer(state, action) {
       return {
         ...state,
         divisions: state.divisions.map(d => {
-          if (d.id !== divisionId) return d
-          if (d.pairs.length < 2) return d
-          const { matches } = generateSchedule(d.pairs.length, passCount)
-          return { ...d, matches, locked: true }
+          if (d.id !== divisionId || d.locked) return d
+          if (d.kind === 'roundRobin') {
+            if ((d.pairs || []).length < 2) return d
+            const { matches } = generateSchedule(d.pairs.length, passCount)
+            return { ...d, matches, locked: true }
+          }
+          if (d.kind === 'singleElim' || d.kind === 'doubleElim') {
+            const entrants = d.entrants || []
+            if (entrants.length < 2) return d
+            const built =
+              d.kind === 'doubleElim'
+                ? generateDoubleElimBracket(entrants)
+                : generateSingleElimBracket(entrants)
+            return {
+              ...d,
+              matches: built.matches,
+              rounds: built.rounds,
+              size: built.size,
+              locked: true,
+            }
+          }
+          return d
         }),
       }
     }
@@ -247,6 +335,123 @@ function reducer(state, action) {
         divisions: state.divisions.map(d => {
           if (d.id !== divisionId) return d
           return { ...d, matches: [], locked: false }
+        }),
+      }
+    }
+
+    case 'ADD_ENTRANT': {
+      // Used by elimination-kind divisions. RR uses ADD_PAIR.
+      const { divisionId, p1, p2, isBye } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId || d.locked) return d
+          if (d.kind === 'roundRobin') return d
+          const entrant = {
+            id: newId('ent'),
+            p1: p1 || '',
+            p2: p2 || '',
+            isBye: !!isBye,
+            seed: (d.entrants?.length || 0) + 1,
+          }
+          return { ...d, entrants: [...(d.entrants || []), entrant] }
+        }),
+      }
+    }
+
+    case 'UPDATE_ENTRANT': {
+      const { divisionId, id, patch } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId || d.locked) return d
+          return {
+            ...d,
+            entrants: (d.entrants || []).map(e =>
+              e.id === id ? { ...e, ...patch } : e
+            ),
+          }
+        }),
+      }
+    }
+
+    case 'REMOVE_ENTRANT': {
+      const { divisionId, id } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId || d.locked) return d
+          const filtered = (d.entrants || []).filter(e => e.id !== id)
+          const reseeded = filtered.map((e, i) => ({ ...e, seed: i + 1 }))
+          return { ...d, entrants: reseeded }
+        }),
+      }
+    }
+
+    case 'REORDER_ENTRANTS': {
+      const { divisionId, order } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId || d.locked) return d
+          const byId = Object.fromEntries((d.entrants || []).map(e => [e.id, e]))
+          const reordered = order
+            .map(id => byId[id])
+            .filter(Boolean)
+            .map((e, i) => ({ ...e, seed: i + 1 }))
+          return { ...d, entrants: reordered }
+        }),
+      }
+    }
+
+    case 'RECORD_BRACKET_SCORE': {
+      const { divisionId, matchId, scoreA, scoreB } = action.payload
+      const winnerSlot = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          const nextMatches = (d.matches || []).map(m =>
+            m.id === matchId
+              ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
+              : { ...m }
+          )
+          applyWalkoverPropagation(nextMatches)
+          return { ...d, matches: nextMatches }
+        }),
+      }
+    }
+
+    case 'CLEAR_BRACKET_SCORE': {
+      const { divisionId, matchId } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            matches: (d.matches || []).map(m =>
+              m.id === matchId
+                ? { ...m, scoreA: null, scoreB: null, completed: false, winnerSlot: null }
+                : m
+            ),
+          }
+        }),
+      }
+    }
+
+    case 'SET_BRACKET_MATCH_SCHEDULE': {
+      const { divisionId, matchId, scheduledAt } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            matches: (d.matches || []).map(m =>
+              m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
+            ),
+          }
         }),
       }
     }
@@ -309,119 +514,6 @@ function reducer(state, action) {
     case 'BACK_TO_SETUP':
       return { ...state, phase: 'setup' }
 
-    // ----- Brackets (single/double elimination) -----
-    // All bracket actions target a specific bracket by id, since one
-    // event can now hold multiple brackets (Men's 4.0, Women's 3.5,
-    // Mixed Open, etc.). The helper `mapBracket` keeps the per-action
-    // bodies focused on their state shape.
-
-    case 'ADD_BRACKET': {
-      const { kind, name } = action.payload
-      const bracket = {
-        id: newId('br'),
-        name: name || (kind === 'doubleElim' ? 'Double Elim Draw' : 'Single Elim Draw'),
-        type: kind === 'doubleElim' ? 'doubleElim' : 'singleElim',
-        variant: '',
-        rating: '',
-        entrants: [],
-        matches: [],
-        locked: false,
-      }
-      return { ...state, brackets: [...(state.brackets || []), bracket] }
-    }
-
-    case 'UPDATE_BRACKET': {
-      const { id, patch } = action.payload
-      return mapBracket(state, id, b => ({ ...b, ...patch }))
-    }
-
-    case 'REMOVE_BRACKET': {
-      const { id } = action.payload
-      return {
-        ...state,
-        brackets: (state.brackets || []).filter(b => b.id !== id),
-      }
-    }
-
-    case 'ADD_BRACKET_ENTRANT': {
-      const { bracketId, p1, p2, isBye } = action.payload
-      return mapBracket(state, bracketId, b => {
-        const entrant = {
-          id: newId('ent'),
-          p1: p1 || '',
-          p2: p2 || '',
-          isBye: !!isBye,
-          seed: (b.entrants?.length || 0) + 1,
-        }
-        return { ...b, entrants: [...(b.entrants || []), entrant] }
-      })
-    }
-
-    case 'UPDATE_BRACKET_ENTRANT': {
-      const { bracketId, id, patch } = action.payload
-      return mapBracket(state, bracketId, b => ({
-        ...b,
-        entrants: b.entrants.map(e => (e.id === id ? { ...e, ...patch } : e)),
-      }))
-    }
-
-    case 'REMOVE_BRACKET_ENTRANT': {
-      const { bracketId, id } = action.payload
-      return mapBracket(state, bracketId, b => {
-        const filtered = (b.entrants || []).filter(e => e.id !== id)
-        const reseeded = filtered.map((e, i) => ({ ...e, seed: i + 1 }))
-        return { ...b, entrants: reseeded }
-      })
-    }
-
-    case 'REORDER_BRACKET_ENTRANTS': {
-      const { bracketId, order } = action.payload
-      return mapBracket(state, bracketId, b => {
-        const byId = Object.fromEntries(b.entrants.map(e => [e.id, e]))
-        const reordered = order
-          .map(id => byId[id])
-          .filter(Boolean)
-          .map((e, i) => ({ ...e, seed: i + 1 }))
-        return { ...b, entrants: reordered }
-      })
-    }
-
-    case 'RECORD_BRACKET_SCORE': {
-      const { bracketId, matchId, scoreA, scoreB } = action.payload
-      const winnerSlot = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
-      return mapBracket(state, bracketId, b => {
-        const nextMatches = b.matches.map(m =>
-          m.id === matchId
-            ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
-            : { ...m }
-        )
-        applyWalkoverPropagation(nextMatches)
-        return { ...b, matches: nextMatches }
-      })
-    }
-
-    case 'CLEAR_BRACKET_SCORE': {
-      const { bracketId, matchId } = action.payload
-      return mapBracket(state, bracketId, b => ({
-        ...b,
-        matches: b.matches.map(m =>
-          m.id === matchId
-            ? { ...m, scoreA: null, scoreB: null, completed: false, winnerSlot: null }
-            : m
-        ),
-      }))
-    }
-
-    case 'SET_BRACKET_MATCH_SCHEDULE': {
-      const { bracketId, matchId, scheduledAt } = action.payload
-      return mapBracket(state, bracketId, b => ({
-        ...b,
-        matches: b.matches.map(m =>
-          m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
-        ),
-      }))
-    }
-
     case 'GO_HOME':
       // Preserve in-memory state so the home screen can offer
       // "Continue draft" if work was abandoned mid-setup. The URL
@@ -429,15 +521,10 @@ function reducer(state, action) {
       return { ...state, phase: 'home' }
 
     case 'START_NEW_TOURNAMENT': {
-      // Fresh tournament rooted to a brand-new room code so the
-      // hash-based deep link works from the very first keystroke.
-      // The picker passes type/variant/rating/dates as part of the
-      // payload — none are required, but supplying them up-front
-      // means the Setup screen lands in the right configuration.
-      //
-      // For bracket-type events we auto-create the first bracket so
-      // the Setup page has somewhere to add entrants right away;
-      // additional brackets can be added from the Setup screen.
+      // Fresh event rooted to a brand-new room code so the hash deep
+      // link works from the first keystroke. No divisions are added
+      // automatically anymore — the Setup page exposes "+ Add
+      // division" so the pro picks variant/rating/format per draw.
       const code = action.payload?.code || generateRoomCode()
       const meta = action.payload?.meta || {}
       const tournament = {
@@ -445,36 +532,18 @@ function reducer(state, action) {
         ...meta,
         roomCode: code,
       }
-      const brackets = []
-      const t = tournament.type
-      if (t === 'singlesSingleElim' || t === 'doublesSingleElim') {
-        brackets.push({
-          id: newId('br'),
-          name: tournament.name || 'Main draw',
-          type: 'singleElim',
-          variant: tournament.variant || '',
-          rating: tournament.rating || '',
-          entrants: [],
-          matches: [],
-          locked: false,
-        })
-      } else if (t === 'singlesDoubleElim' || t === 'doublesDoubleElim') {
-        brackets.push({
-          id: newId('br'),
-          name: tournament.name || 'Main draw',
-          type: 'doubleElim',
-          variant: tournament.variant || '',
-          rating: tournament.rating || '',
-          entrants: [],
-          matches: [],
-          locked: false,
-        })
+      // Hold any defaults the New Event dialog passed up so the first
+      // Add Division dialog pre-fills with the same shape.
+      if (meta.defaults) {
+        tournament.defaults = {
+          ...initialState.tournament.defaults,
+          ...meta.defaults,
+        }
       }
       return {
         ...initialState,
         phase: 'setup',
         tournament,
-        brackets,
       }
     }
 
@@ -516,18 +585,26 @@ function reducer(state, action) {
 }
 
 /**
- * Bracket-action helper: replace one bracket-by-id in state.brackets
- * with the result of `fn(bracket)`. Bracket reducers used to read
- * `state.bracket` directly; once the model went many-per-event each
- * action needs to find the right bracket first, and this keeps the
- * per-action logic focused on the state shape rather than the lookup.
+ * Build a default name for a freshly-added division when the pro
+ * hasn't typed one. Combines what's known about the division's
+ * variant / rating / format so the card has a meaningful header
+ * before any entrants are added (e.g. "Men's 4.0 · Single Elim").
  */
-function mapBracket(state, bracketId, fn) {
-  if (!state.brackets) return state
-  return {
-    ...state,
-    brackets: state.brackets.map(b => (b.id === bracketId ? fn(b) : b)),
-  }
+function autoName({ kind, variant, rating, entrantKind }, defaults) {
+  const v = variant || defaults.variant || 'all'
+  const r = rating ?? defaults.rating ?? ''
+  const k = kind || 'roundRobin'
+  const ek = entrantKind || defaults.entrantKind || 'singles'
+  const variantText = v && v !== 'all' ? getVariant(v).label : ''
+  const ratingText = getRatingLabel(r) || ''
+  const formatText =
+    k === 'doubleElim' ? 'Double Elim'
+      : k === 'singleElim' ? 'Single Elim'
+      : 'Round Robin'
+  const kindText = ek === 'doubles' ? 'Doubles' : 'Singles'
+  return [variantText, ratingText, kindText, formatText]
+    .filter(Boolean)
+    .join(' · ')
 }
 
 function pairLabel(p1, p2) {
@@ -544,16 +621,15 @@ function pairLabel(p1, p2) {
  */
 function buildVisit(code, snapshot) {
   const t = snapshot?.tournament || {}
+  const divisions = snapshot?.divisions || []
   return {
     code,
     name: t.name || '',
     date: t.startDate || t.date || '',
-    typeId: t.type || 'feedIn',
-    variantId: t.variant || 'all',
-    ratingId: t.rating || '',
     startDate: t.startDate || '',
     endDate: t.endDate || '',
     ongoing: !!t.ongoing,
+    divisionCount: divisions.length,
   }
 }
 
@@ -599,6 +675,12 @@ export function useTournament() {
         })
         setRoomCodeInURL(code)
         trackRoomVisit(buildVisit(code, loaded))
+      } else if (stateRef.current?.tournament?.roomCode === code) {
+        // The server has no record of this code but the device does
+        // (likely the pro just created the event and refreshed before
+        // the 1200ms debounced save fired). Push our local copy now
+        // so the event is recoverable from any other device.
+        saveToRoom(code, stateRef.current).catch(() => {})
       }
     })
   }, [])
@@ -679,6 +761,28 @@ export function useTournament() {
     return () => clearInterval(id)
   }, [state.tournament.roomCode])
 
+  // Last-line-of-defense flush on tab close / mobile background.
+  // Without this, a freshly-created event sitting in the 1200ms
+  // debounce window would be lost if the pro closed the tab. The
+  // `keepalive` POST runs even after the page is gone.
+  useEffect(() => {
+    function flush() {
+      if (!saveTimerRef.current) return
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      const s = stateRef.current
+      const code = s?.tournament?.roomCode
+      if (!code || s.phase === 'home') return
+      saveToRoomBeacon(code, s)
+    }
+    window.addEventListener('pagehide', flush)
+    window.addEventListener('beforeunload', flush)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      window.removeEventListener('beforeunload', flush)
+    }
+  }, [])
+
   // Imperative navigation helpers exposed to the home screen and the
   // back-to-home buttons. They wrap the dispatch + URL mirror so the
   // address bar always reflects the active room (or the bare /feedin/
@@ -724,7 +828,23 @@ export function useTournament() {
     setRoomCodeInURL(code)
   }
 
-  function goHome() {
+  async function goHome() {
+    // Flush any debounced save before stepping away. Going home
+    // intentionally suspends future server saves (phase='home'), so
+    // anything still sitting in the 1200ms debounce window would be
+    // lost without this. Most often this is the just-created event
+    // — the pro hits Create then taps Home before the first save
+    // fires.
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+      const code = stateRef.current.tournament.roomCode
+      if (code) {
+        try {
+          await saveToRoom(code, stateRef.current)
+        } catch {}
+      }
+    }
     dispatch({ type: 'GO_HOME' })
     if (window.location.hash) {
       history.replaceState(null, '', window.location.pathname)

@@ -4,7 +4,7 @@ import PinGate, { PinSetup } from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 
-export default function Setup({ state, dispatch, saveStatus }) {
+export default function Setup({ state, dispatch, saveStatus, onGoHome }) {
   const { tournament, divisions } = state
   const [showPinSetup, setShowPinSetup] = useState(false)
   const [showPinGate, setShowPinGate] = useState(false)
@@ -29,20 +29,8 @@ export default function Setup({ state, dispatch, saveStatus }) {
     else setShowPinGate(true)
   }
 
-  function handleNewTournament() {
-    const hasWork = divisions.length > 0 || tournament.roomCode || tournament.name
-    if (
-      hasWork &&
-      !confirm(
-        'Start a new tournament? This clears the current setup from this device. The existing room (if any) stays on the server and can be reopened with its link.'
-      )
-    ) {
-      return
-    }
-    dispatch({ type: 'RESET' })
-    if (window.location.hash) {
-      history.replaceState(null, '', window.location.pathname)
-    }
+  function handleGoHome() {
+    onGoHome?.()
   }
 
   const allLocked = divisions.length > 0 && divisions.every(d => d.locked)
@@ -54,7 +42,7 @@ export default function Setup({ state, dispatch, saveStatus }) {
         roomCode={tournament.roomCode}
         onRoomCode={ensureRoomCode}
         onSetPin={() => setShowPinSetup(true)}
-        onNewTournament={handleNewTournament}
+        onGoHome={handleGoHome}
         saveStatus={saveStatus}
         onFixPin={() => setShowPinGate(true)}
       />
@@ -248,7 +236,7 @@ function RoundsEditor({ passes, locked, onChange }) {
   )
 }
 
-function Header({ tournament, roomCode, onRoomCode, onSetPin, onNewTournament, saveStatus, onFixPin }) {
+function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, saveStatus, onFixPin }) {
   const shareUrl = roomCode
     ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
     : ''
@@ -256,15 +244,15 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onNewTournament, s
   return (
     <header className="mb-5">
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
-        <Brand subtitle="Feed-In Tournament" />
+        <Brand subtitle="Feed-In Tournament" onClick={onGoHome} />
         <div className="flex items-center gap-2 flex-wrap">
           <SaveStatus status={saveStatus} hasRoomCode={Boolean(roomCode)} onFix={onFixPin} />
           <button
-            onClick={onNewTournament}
+            onClick={onGoHome}
             className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"
-            title="Clear this device and start a new tournament"
+            title="Back to home"
           >
-            New tournament
+            Home
           </button>
           <button
             onClick={onSetPin}
@@ -425,48 +413,52 @@ function PairList({ division, dispatch, ifAuthed }) {
         {pairs.map((pair, idx) => (
           <li
             key={pair.id}
-            className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2"
+            className="flex items-center gap-2 bg-vinoy-cream rounded-xl px-3 py-2"
           >
-            <span className="w-6 text-center font-bold text-gray-500">{idx + 1}</span>
-            <input
-              type="text"
-              value={pair.p1}
-              onChange={(e) =>
-                ifAuthed(() =>
-                  dispatch({
-                    type: 'UPDATE_PAIR',
-                    payload: {
-                      divisionId: division.id,
-                      pairId: pair.id,
-                      patch: { p1: e.target.value },
-                    },
-                  })
-                )
-              }
-              placeholder="Player 1"
-              disabled={locked}
-              className="flex-1 bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm"
-            />
-            <span className="text-gray-400">/</span>
-            <input
-              type="text"
-              value={pair.p2}
-              onChange={(e) =>
-                ifAuthed(() =>
-                  dispatch({
-                    type: 'UPDATE_PAIR',
-                    payload: {
-                      divisionId: division.id,
-                      pairId: pair.id,
-                      patch: { p2: e.target.value },
-                    },
-                  })
-                )
-              }
-              placeholder="Player 2"
-              disabled={locked}
-              className="flex-1 bg-white border border-gray-200 rounded-lg px-2 py-1 text-sm"
-            />
+            <span className="w-6 shrink-0 text-center font-bold text-vinoy-ink/50">
+              {idx + 1}
+            </span>
+            <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                type="text"
+                value={pair.p1}
+                onChange={(e) =>
+                  ifAuthed(() =>
+                    dispatch({
+                      type: 'UPDATE_PAIR',
+                      payload: {
+                        divisionId: division.id,
+                        pairId: pair.id,
+                        patch: { p1: e.target.value },
+                      },
+                    })
+                  )
+                }
+                placeholder="Player 1"
+                disabled={locked}
+                className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
+              />
+              <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
+              <input
+                type="text"
+                value={pair.p2}
+                onChange={(e) =>
+                  ifAuthed(() =>
+                    dispatch({
+                      type: 'UPDATE_PAIR',
+                      payload: {
+                        divisionId: division.id,
+                        pairId: pair.id,
+                        patch: { p2: e.target.value },
+                      },
+                    })
+                  )
+                }
+                placeholder="Player 2"
+                disabled={locked}
+                className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
+              />
+            </div>
             {!locked && (
               <button
                 onClick={() =>
@@ -477,7 +469,7 @@ function PairList({ division, dispatch, ifAuthed }) {
                     })
                   )
                 }
-                className="text-gray-400 hover:text-red-600 px-1"
+                className="shrink-0 text-gray-400 hover:text-red-600 px-1"
                 title="Remove pair"
               >
                 ✕
@@ -489,27 +481,31 @@ function PairList({ division, dispatch, ifAuthed }) {
 
       {!locked && (
         <div className="flex items-center gap-2">
-          <span className="w-6 text-center font-bold text-gray-300">{pairs.length + 1}</span>
-          <input
-            type="text"
-            value={p1}
-            onChange={(e) => setP1(e.target.value)}
-            placeholder="Player 1"
-            className="flex-1 bg-white border-2 border-gray-200 rounded-lg px-2 py-1 text-sm"
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
-          <span className="text-gray-400">/</span>
-          <input
-            type="text"
-            value={p2}
-            onChange={(e) => setP2(e.target.value)}
-            placeholder="Player 2"
-            className="flex-1 bg-white border-2 border-gray-200 rounded-lg px-2 py-1 text-sm"
-            onKeyDown={(e) => e.key === 'Enter' && add()}
-          />
+          <span className="w-6 shrink-0 text-center font-bold text-gray-300">
+            {pairs.length + 1}
+          </span>
+          <div className="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-center gap-2">
+            <input
+              type="text"
+              value={p1}
+              onChange={(e) => setP1(e.target.value)}
+              placeholder="Player 1"
+              className="flex-1 min-w-0 bg-white border-2 border-vinoy-border rounded-lg px-2 py-1 text-sm"
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+            />
+            <span className="hidden sm:inline text-gray-400 shrink-0">/</span>
+            <input
+              type="text"
+              value={p2}
+              onChange={(e) => setP2(e.target.value)}
+              placeholder="Player 2"
+              className="flex-1 min-w-0 bg-white border-2 border-vinoy-border rounded-lg px-2 py-1 text-sm"
+              onKeyDown={(e) => e.key === 'Enter' && add()}
+            />
+          </div>
           <button
             onClick={add}
-            className="px-3 py-1 rounded-lg bg-tennis-green text-white text-sm font-semibold"
+            className="shrink-0 px-3 py-1 rounded-lg bg-vinoy-green text-white text-sm font-semibold"
           >
             Add
           </button>

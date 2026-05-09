@@ -1,0 +1,31 @@
+# Run on the Hostinger VPS:
+#   docker compose pull && docker compose up -d
+#
+# Persists per-room JSON in the named volume so image updates don't wipe
+# in-progress tournaments.
+
+services:
+  feedin:
+    image: ghcr.io/dzuy4bigsea/social-tennis-organizer:latest
+    container_name: feedin
+    restart: unless-stopped
+    ports:
+      # Host port 8088 → container port 80. Change the host side if it
+      # collides with another container, or remove this block entirely
+      # and rely on labels below if the reverse proxy handles routing.
+      - "8088:80"
+    volumes:
+      - feedin-data:/var/www/html/feedin/tennis-data
+
+    # If your reverse proxy is Traefik, uncomment these labels and replace
+    # the host rule with your actual domain. Otherwise add the container to
+    # whatever proxy network you already use (nginx-proxy, Caddy, etc.).
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.feedin.rule=Host(`tennis.example.com`)"
+    #   - "traefik.http.routers.feedin.entrypoints=websecure"
+    #   - "traefik.http.routers.feedin.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.feedin.loadbalancer.server.port=80"
+
+volumes:
+  feedin-data:

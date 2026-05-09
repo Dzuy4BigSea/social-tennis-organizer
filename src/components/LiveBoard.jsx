@@ -93,7 +93,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
         </div>
         {tournament.roomCode && (
           <p className="text-xs text-vinoy-ink/60 font-mono mt-1 ml-1">
-            Room {tournament.roomCode}
+            Event {tournament.roomCode}
           </p>
         )}
         <OrnamentalRule className="mt-3" />

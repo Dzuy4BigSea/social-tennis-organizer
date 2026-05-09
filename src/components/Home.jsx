@@ -81,8 +81,8 @@ export default function Home({
               Continue draft
             </h3>
             <p className="text-xs text-vinoy-ink/70 mt-0.5">
-              {draftSummary(draft)}. Picking back up will mint a room code so
-              you can share or recover this from another device.
+              {draftSummary(draft)}. Picking back up will mint an event code
+              so you can share or recover this from another device.
             </p>
           </div>
           <button
@@ -131,7 +131,7 @@ export default function Home({
           Join by code
         </h3>
         <p className="text-xs text-vinoy-ink/70 mb-3">
-          Enter the 6-character room code for an existing event.
+          Enter the 6-character event code for an existing event.
         </p>
         <form
           onSubmit={(e) => {
@@ -193,7 +193,7 @@ function RoomRow({ room, onJoin, onRemove }) {
           <RecentBadges room={room} />
         </div>
         <div className="text-xs text-vinoy-ink/50 font-mono mt-1">
-          Room {room.code}
+          Event {room.code}
           {room.lastVisited && ` · ${formatRelative(room.lastVisited)}`}
         </div>
       </button>

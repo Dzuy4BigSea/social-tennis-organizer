@@ -25,7 +25,7 @@ export default function ComingSoon({ state }) {
       </h2>
       <p className="text-sm text-vinoy-ink/70 max-w-md mx-auto mb-4">
         Scoring and draw tools for this format aren't built yet. Your event
-        is saved to the room — share the link or come back later once the UI
+        is saved to the event — share the link or come back later once the UI
         ships.
       </p>
       <dl className="text-sm grid grid-cols-2 gap-y-1 max-w-sm mx-auto text-left">
@@ -53,7 +53,7 @@ export default function ComingSoon({ state }) {
         ) : null}
         {t.roomCode && (
           <>
-            <dt className="text-vinoy-ink/60">Room</dt>
+            <dt className="text-vinoy-ink/60">Event code</dt>
             <dd className="font-mono">{t.roomCode}</dd>
           </>
         )}

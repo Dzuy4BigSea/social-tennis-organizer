@@ -131,7 +131,7 @@ function PrintHeader({ state }) {
           )}
           {t.roomCode && (
             <div className="font-mono text-xs text-vinoy-ink/50 mt-2">
-              Room {t.roomCode}
+              Event {t.roomCode}
             </div>
           )}
         </div>

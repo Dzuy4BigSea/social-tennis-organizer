@@ -21,16 +21,18 @@ function newId(prefix = 'id') {
  *   tournament: {
  *     name,
  *     date,
- *     winningScore,        // first to N (default 7)
+ *     passes: [{ winningScore }, ...],  // one entry per round; coaches set
+ *                                       // a target score per round (e.g.
+ *                                       // round 1 to 7, round 2 to 5)
  *     roomCode,
- *     pinHash,             // bcrypt-style hash, set when pro chooses a pin
+ *     pinHash,
  *   },
  *   divisions: [
  *     {
  *       id, name, courtLabel,
  *       pairs:   [{ id, label, p1, p2 }],
- *       matches: [{ id, round, slot, pairA, pairB, bye, scoreA, scoreB, completed }],
- *       locked,            // schedule generated, no more pair edits
+ *       matches: [{ id, pass, round, slot, pairA, pairB, bye, scoreA, scoreB, completed }],
+ *       locked,
  *     }
  *   ]
  * }
@@ -40,11 +42,28 @@ export const initialState = {
   tournament: {
     name: '',
     date: '',
-    winningScore: 7,
+    passes: [{ winningScore: 7 }],
     roomCode: null,
     pinHash: null,
   },
   divisions: [],
+}
+
+/**
+ * Older saved tournaments stored a single `tournament.winningScore`
+ * instead of a passes array. Lift them into the new shape so existing
+ * rooms keep working after this update.
+ */
+function migrate(state) {
+  if (!state || !state.tournament) return state
+  const t = state.tournament
+  if (Array.isArray(t.passes) && t.passes.length > 0) return state
+  const ws = typeof t.winningScore === 'number' ? t.winningScore : 7
+  const { winningScore: _ws, ...rest } = t
+  return {
+    ...state,
+    tournament: { ...rest, passes: [{ winningScore: ws }] },
+  }
 }
 
 function reducer(state, action) {
@@ -142,12 +161,13 @@ function reducer(state, action) {
 
     case 'LOCK_DIVISION': {
       const { divisionId } = action.payload
+      const passCount = state.tournament.passes?.length || 1
       return {
         ...state,
         divisions: state.divisions.map(d => {
           if (d.id !== divisionId) return d
           if (d.pairs.length < 2) return d
-          const { matches } = generateSchedule(d.pairs.length)
+          const { matches } = generateSchedule(d.pairs.length, passCount)
           return { ...d, matches, locked: true }
         }),
       }
@@ -213,7 +233,14 @@ function reducer(state, action) {
       return { ...state, tournament: { ...state.tournament, pinHash: action.payload } }
 
     case 'LOAD_STATE':
-      return { ...initialState, ...action.payload }
+      return migrate({ ...initialState, ...action.payload })
+
+    case 'SET_PASSES': {
+      const passes = (action.payload || [])
+        .map(p => ({ winningScore: Math.max(1, p?.winningScore | 0 || 7) }))
+      const safe = passes.length > 0 ? passes : [{ winningScore: 7 }]
+      return { ...state, tournament: { ...state.tournament, passes: safe } }
+    }
 
     case 'RESET':
       return { ...initialState }
@@ -234,7 +261,7 @@ export function useTournament() {
   const [state, dispatch] = useReducer(reducer, null, () => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY)
-      if (saved) return JSON.parse(saved)
+      if (saved) return migrate(JSON.parse(saved))
     } catch {}
     return initialState
   })

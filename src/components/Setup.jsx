@@ -71,25 +71,15 @@ export default function Setup({ state, dispatch, saveStatus }) {
               className="mt-1 w-full border-2 border-gray-200 rounded-xl px-3 py-2 focus:border-tennis-green focus:outline-none"
             />
           </label>
-          <label className="block">
-            <span className="text-xs text-gray-600">First to N games</span>
-            <input
-              type="number"
-              min="1"
-              max="21"
-              value={tournament.winningScore}
-              onChange={(e) =>
-                ifAuthed(() =>
-                  dispatch({
-                    type: 'SET_TOURNAMENT',
-                    payload: { winningScore: Math.max(1, parseInt(e.target.value) || 7) },
-                  })
-                )
-              }
-              className="mt-1 w-full border-2 border-gray-200 rounded-xl px-3 py-2 focus:border-tennis-green focus:outline-none"
-            />
-          </label>
         </div>
+
+        <RoundsEditor
+          passes={tournament.passes}
+          locked={divisions.some(d => d.locked)}
+          onChange={(passes) =>
+            ifAuthed(() => dispatch({ type: 'SET_PASSES', payload: passes }))
+          }
+        />
       </section>
 
       {!tournament.pinHash && (
@@ -158,6 +148,84 @@ export default function Setup({ state, dispatch, saveStatus }) {
           onClose={() => setShowPinGate(false)}
         />
       )}
+    </div>
+  )
+}
+
+function RoundsEditor({ passes, locked, onChange }) {
+  const list = passes && passes.length ? passes : [{ winningScore: 7 }]
+
+  function update(idx, ws) {
+    const next = list.map((p, i) =>
+      i === idx ? { ...p, winningScore: Math.max(1, parseInt(ws) || 1) } : p
+    )
+    onChange(next)
+  }
+  function add() {
+    onChange([...list, { winningScore: list[list.length - 1]?.winningScore || 7 }])
+  }
+  function remove(idx) {
+    if (list.length <= 1) return
+    onChange(list.filter((_, i) => i !== idx))
+  }
+
+  return (
+    <div className="mt-4 pt-4 border-t border-gray-100">
+      <div className="flex items-center justify-between mb-2">
+        <div>
+          <div className="text-sm font-semibold text-gray-700">Rounds</div>
+          <div className="text-xs text-gray-500">
+            Each round is a full round-robin. Set a target score per round.
+          </div>
+        </div>
+        {!locked && (
+          <button
+            type="button"
+            onClick={add}
+            className="px-3 py-1.5 rounded-lg border border-tennis-green text-tennis-green text-sm font-semibold"
+          >
+            + Round
+          </button>
+        )}
+      </div>
+      {locked && (
+        <p className="text-xs text-yellow-700 bg-yellow-50 rounded-lg px-3 py-2 mb-2">
+          Schedule already generated. Unlock divisions to change the round count.
+        </p>
+      )}
+      <ol className="space-y-2">
+        {list.map((p, idx) => (
+          <li
+            key={idx}
+            className="flex items-center gap-3 bg-gray-50 rounded-xl px-3 py-2"
+          >
+            <span className="w-8 h-8 rounded-full bg-tennis-green text-white flex items-center justify-center font-bold text-sm">
+              {idx + 1}
+            </span>
+            <span className="text-sm text-gray-700 flex-1">First to</span>
+            <input
+              type="number"
+              min="1"
+              max="21"
+              value={p.winningScore}
+              disabled={locked}
+              onChange={(e) => update(idx, e.target.value)}
+              className="w-20 text-center text-lg font-bold border-2 border-gray-200 rounded-lg px-2 py-1 focus:border-tennis-green focus:outline-none disabled:bg-gray-100"
+            />
+            <span className="text-sm text-gray-500">games</span>
+            {!locked && list.length > 1 && (
+              <button
+                type="button"
+                onClick={() => remove(idx)}
+                className="text-gray-400 hover:text-red-600 px-1"
+                title="Remove round"
+              >
+                ✕
+              </button>
+            )}
+          </li>
+        ))}
+      </ol>
     </div>
   )
 }

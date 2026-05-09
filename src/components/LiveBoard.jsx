@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react'
 import StandingsGrid from './StandingsGrid.jsx'
 import PinGate from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
+import Brand from './Brand.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
 
@@ -34,38 +35,37 @@ export default function LiveBoard({ state, dispatch, saveStatus }) {
 
   return (
     <div className="max-w-5xl mx-auto px-3 py-4">
-      <header className="mb-3 flex items-center justify-between gap-2 flex-wrap">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-tennis-green">
-            {tournament.name || 'Feed-In Tournament'}
-          </h1>
-          {tournament.roomCode && (
-            <p className="text-xs text-gray-500 font-mono">
-              Room {tournament.roomCode}
-            </p>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <SaveStatus
-            status={saveStatus}
-            hasRoomCode={Boolean(tournament.roomCode)}
-            onFix={() => setShowPinGate(true)}
-          />
-          {!proAuthed && tournament.pinHash && (
+      <header className="mb-3">
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <Brand subtitle={tournament.name || 'Feed-In Tournament'} compact />
+          <div className="flex items-center gap-2 flex-wrap">
+            <SaveStatus
+              status={saveStatus}
+              hasRoomCode={Boolean(tournament.roomCode)}
+              onFix={() => setShowPinGate(true)}
+            />
+            {!proAuthed && tournament.pinHash && (
+              <button
+                onClick={() => setShowPinGate(true)}
+                className="px-3 py-2 rounded-xl border border-vinoy-green text-vinoy-green text-sm font-semibold"
+              >
+                Pro mode
+              </button>
+            )}
             <button
-              onClick={() => setShowPinGate(true)}
-              className="px-3 py-2 rounded-xl border border-tennis-green text-tennis-green text-sm font-semibold"
+              onClick={() => ifAuthed(() => dispatch({ type: 'BACK_TO_SETUP' }))}
+              className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"
             >
-              Pro mode
+              Setup
             </button>
-          )}
-          <button
-            onClick={() => ifAuthed(() => dispatch({ type: 'BACK_TO_SETUP' }))}
-            className="px-3 py-2 rounded-xl border border-gray-300 text-sm"
-          >
-            Setup
-          </button>
+          </div>
         </div>
+        {tournament.roomCode && (
+          <p className="text-xs text-vinoy-ink/60 font-mono mt-1 ml-1">
+            Room {tournament.roomCode}
+          </p>
+        )}
+        <div className="vinoy-rule mt-3" />
       </header>
 
       <DivisionTabs
@@ -393,8 +393,8 @@ function UpcomingCard({ label, match, division, passes }) {
   const pairB = pairByNum(division, match.pairB)
   const ws = winningScoreFor(passes, match)
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-3">
-      <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">
+    <div className="bg-white rounded-2xl border border-vinoy-border p-3 shadow-sm">
+      <div className="text-xs uppercase tracking-wide text-vinoy-gold font-semibold mb-1">
         {label} · Round {match.pass || 1} · to {ws}
       </div>
       <div className="flex items-center gap-2">
@@ -425,7 +425,7 @@ function CompletedSummary({ division, proAuthed, onEdit }) {
 
   return (
     <details
-      className="bg-white rounded-2xl border border-gray-200"
+      className="bg-white rounded-2xl border border-vinoy-border shadow-sm"
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >

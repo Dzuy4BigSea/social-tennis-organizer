@@ -3,25 +3,80 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Feed-In Tournament</title>
+    <title>Vinoy Club Feed-In Tournament</title>
+    <link rel="icon" type="image/png" href="vinoy-logo.png" />
+
+    <!-- Vinoy Club brand fonts: Playfair Display for the wordmark and
+         section headings, Inter for body copy. Pairs the club's 1925
+         Mediterranean Revival heritage with iPad-readable body text. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
         theme: {
           extend: {
+            // Brand palette from the Vinoy crest: deep hunter green
+            // primary, warm gold accent, parchment cream backgrounds.
+            // Legacy `tennis-*` names are kept as aliases so existing
+            // component classes don't need to change.
             colors: {
+              vinoy: {
+                green: '#1f4634',
+                greenDark: '#13301f',
+                gold: '#b8965a',
+                goldLight: '#d6b97b',
+                cream: '#f7f1e3',
+                parchment: '#efe6cf',
+                border: '#e0d3b0',
+                ink: '#1c1c1c',
+              },
               tennis: {
-                green: '#2d6a4f',
-                light: '#40916c',
-                yellow: '#ffd60a',
-                court: '#c8f7c5',
-              }
-            }
-          }
-        }
+                green: '#1f4634',
+                light: '#2c5444',
+                yellow: '#b8965a',
+                court: '#efe6cf',
+              },
+            },
+            fontFamily: {
+              display: ['"Playfair Display"', 'Georgia', 'serif'],
+              sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            },
+          },
+        },
       }
     </script>
     <style>
+      body {
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      }
+      h1, h2, h3 {
+        font-family: 'Playfair Display', Georgia, serif;
+        letter-spacing: -0.01em;
+      }
+      /* Subtle parchment texture on the page background — classic
+         resort feel without competing with content. */
+      .vinoy-page-bg {
+        background-color: #f7f1e3;
+        background-image:
+          radial-gradient(rgba(184, 150, 90, 0.06) 1px, transparent 1px);
+        background-size: 24px 24px;
+      }
+      /* Hairline gold rule used under section headers. */
+      .vinoy-rule {
+        height: 1px;
+        background: linear-gradient(
+          to right,
+          transparent,
+          rgba(184, 150, 90, 0.5),
+          transparent
+        );
+      }
       @media print {
         .no-print { display: none !important; }
         .print-only { display: block !important; }
@@ -33,7 +88,7 @@
       }
     </style>
   </head>
-  <body class="bg-gray-50 min-h-screen">
+  <body class="vinoy-page-bg min-h-screen text-vinoy-ink">
     <div id="tennis-app-root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

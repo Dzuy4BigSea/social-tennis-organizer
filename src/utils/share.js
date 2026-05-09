@@ -100,6 +100,27 @@ export async function saveToRoom(code, state) {
 }
 
 /**
+ * Best-effort save during page unload. Fires a `keepalive` POST so
+ * the browser will let the request complete even after the tab is
+ * gone. Used as the last line of defense when a debounced save is
+ * still pending — most often the just-created event the pro never
+ * gave time to land on the server.
+ */
+export function saveToRoomBeacon(code, state) {
+  try {
+    fetch(`${API}?code=${code}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Tournament-Pin': getStoredPin(),
+      },
+      body: JSON.stringify(state),
+      keepalive: true,
+    }).catch(() => {})
+  } catch {}
+}
+
+/**
  * Reads are always public — anyone with the link can view a tournament.
  */
 export async function loadFromRoom(code) {

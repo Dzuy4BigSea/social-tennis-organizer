@@ -3,7 +3,6 @@ import Brand from './Brand.jsx'
 import NewEventDialog from './NewEventDialog.jsx'
 import OrnamentalRule from './OrnamentalRule.jsx'
 import { getRecentRooms, removeRecentRoom } from '../utils/share.js'
-import { getEventType, getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 /**
  * Landing screen for /feedin/. Three jobs in priority order:
@@ -305,19 +304,18 @@ function todayIso() {
 }
 
 /**
- * Compact horizontal badges that summarize an event entry: type,
- * variant, rating, and date range. Skips fields that aren't set so
- * older saves with no event metadata still render cleanly.
+ * Compact horizontal badges that summarize an event entry: a
+ * division count and the date range. Variant / rating used to
+ * appear here too, but those moved to per-division so the chips
+ * would only mislead at the event level.
  */
 function RecentBadges({ room }) {
-  const typeLabel = room.typeId ? getEventType(room.typeId).label : null
-  const variantLabel =
-    room.variantId && room.variantId !== 'all'
-      ? getVariant(room.variantId).label
-      : null
-  const ratingLabel = room.ratingId ? getRatingLabel(room.ratingId) : null
   const dateLabel = formatDateRange(room)
-  const items = [typeLabel, variantLabel, ratingLabel, dateLabel].filter(Boolean)
+  const divLabel =
+    typeof room.divisionCount === 'number' && room.divisionCount > 0
+      ? `${room.divisionCount} ${room.divisionCount === 1 ? 'division' : 'divisions'}`
+      : null
+  const items = [divLabel, dateLabel].filter(Boolean)
   if (items.length === 0) return null
   return (
     <>
@@ -352,14 +350,14 @@ function shortDate(iso) {
 function draftSummary(state) {
   const t = state.tournament || {}
   const divCount = state.divisions?.length || 0
-  const pairCount = (state.divisions || []).reduce(
-    (n, d) => n + (d.pairs?.length || 0),
+  const partCount = (state.divisions || []).reduce(
+    (n, d) => n + (d.pairs?.length || 0) + (d.entrants?.length || 0),
     0
   )
   const parts = []
   if (t.name) parts.push(`"${t.name}"`)
   if (divCount > 0) parts.push(`${divCount} division${divCount === 1 ? '' : 's'}`)
-  if (pairCount > 0) parts.push(`${pairCount} pair${pairCount === 1 ? '' : 's'}`)
+  if (partCount > 0) parts.push(`${partCount} entrant${partCount === 1 ? '' : 's'}`)
   return parts.length ? parts.join(' · ') : 'unsaved setup work'
 }
 

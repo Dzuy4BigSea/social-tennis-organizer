@@ -1,6 +1,5 @@
 import React from 'react'
 import {
-  getEventType,
   getVariant,
   getRatingLabel,
 } from '../utils/eventTypes.js'
@@ -23,8 +22,9 @@ import SiteFooter from './SiteFooter.jsx'
  * bracket diagram is a follow-up nice-to-have.
  */
 export default function PrintView({ state, onClose }) {
-  const evt = getEventType(state.tournament.type)
-  const engine = evt.engine
+  const lockedDraws = (state.divisions || []).filter(
+    d => d.locked && (d.matches?.length || 0) > 0
+  )
 
   return (
     <div className="fixed inset-0 bg-white z-50 overflow-y-auto">
@@ -49,33 +49,22 @@ export default function PrintView({ state, onClose }) {
       <div className="max-w-[850px] mx-auto p-6 print:p-0 print:max-w-none">
         <PrintHeader state={state} />
 
-        {/* Print all draws of any kind. Round-robin divisions first,
-            then brackets — rough chronological order in most events.
-            Each draw starts on a fresh page so the printout collates
-            cleanly when posted on a wall. */}
-        {(state.divisions || []).filter(d => d.locked).map((d, idx) => (
+        {/* Print every locked division. Each starts on a fresh page
+            so the printout collates cleanly when posted on a wall. */}
+        {lockedDraws.map((d, idx) => (
           <div key={d.id} className={idx > 0 ? 'print:break-before-page' : ''}>
-            <DivisionPrint division={d} />
+            {d.kind === 'roundRobin' ? (
+              <DivisionPrint division={d} />
+            ) : (
+              <BracketPrint bracket={d} />
+            )}
           </div>
         ))}
 
-        {(state.brackets || [])
-          .filter(b => b.locked && (b.matches?.length || 0) > 0)
-          .map((b, idx) => {
-            const isFirstSection =
-              (state.divisions || []).filter(x => x.locked).length === 0 && idx === 0
-            return (
-              <div key={b.id} className={!isFirstSection ? 'print:break-before-page' : ''}>
-                <BracketPrint bracket={b} />
-              </div>
-            )
-          })}
-
-        {emptyContent(state) && (
+        {lockedDraws.length === 0 && (
           <p className="text-vinoy-ink/60 text-sm italic">
-            {engine === 'comingSoon'
-              ? 'Printable view for this event format isn’t available yet.'
-              : 'No locked divisions or brackets to print yet — head back to Setup and lock a draw first.'}
+            No locked divisions to print yet — head back to Setup and lock a
+            draw first.
           </p>
         )}
 
@@ -87,7 +76,6 @@ export default function PrintView({ state, onClose }) {
 
 function PrintHeader({ state }) {
   const t = state.tournament
-  const evt = getEventType(t.type)
   const logoUrl = `${import.meta.env.BASE_URL}vinoy-logo.png`
   return (
     <header className="mb-6">
@@ -101,12 +89,6 @@ function PrintHeader({ state }) {
             <h1 className="font-display text-2xl font-bold text-vinoy-ink leading-tight">
               {t.name || 'Untitled event'}
             </h1>
-            <div className="text-sm text-vinoy-ink/70 mt-1">
-              {evt.label}
-              {t.variant && t.variant !== 'all' &&
-                ` · ${getVariant(t.variant).label}`}
-              {t.rating && ` · ${getRatingLabel(t.rating)}`}
-            </div>
           </div>
         </div>
         <div className="text-right text-sm text-vinoy-ink/80 min-w-[10rem]">
@@ -153,10 +135,43 @@ function formatDate(iso) {
   })
 }
 
-function emptyContent(state) {
-  const hasDiv = (state.divisions || []).some(d => d.locked)
-  const hasBr = (state.brackets || []).some(b => b.locked && (b.matches?.length || 0) > 0)
-  return !hasDiv && !hasBr
+/**
+ * Shared header for any printed division — round-robin or bracket.
+ * Reads the per-division kind / variant / rating / entrantKind so
+ * mixed events ("Men's 4.0 SE" + "Women's 3.5 RR") have a clear
+ * identity on each page.
+ */
+function DivisionHeading({ division }) {
+  const variant =
+    division.variant && division.variant !== 'all'
+      ? getVariant(division.variant).label
+      : ''
+  const rating = getRatingLabel(division.rating)
+  const entrants = division.entrantKind === 'doubles' ? 'Doubles' : 'Singles'
+  const format =
+    division.kind === 'doubleElim'
+      ? 'Double Elimination'
+      : division.kind === 'singleElim'
+        ? 'Single Elimination'
+        : 'Round Robin'
+  const subtitle = [variant, rating, entrants, format]
+    .filter(Boolean)
+    .join(' · ')
+  return (
+    <div className="mb-3">
+      <h2 className="font-display text-2xl font-bold text-vinoy-green leading-tight">
+        {division.name || 'Division'}
+        {division.courtLabel && (
+          <span className="ml-3 text-sm font-normal text-vinoy-ink/60">
+            Court {division.courtLabel}
+          </span>
+        )}
+      </h2>
+      {subtitle && (
+        <div className="text-sm text-vinoy-ink/70 mt-0.5">{subtitle}</div>
+      )}
+    </div>
+  )
 }
 
 // ----- Round robin -----
@@ -175,14 +190,7 @@ function DivisionPrint({ division }) {
 
   return (
     <section>
-      <h2 className="font-display text-xl font-bold text-vinoy-green mb-2">
-        {division.name || 'Division'}
-        {division.courtLabel && (
-          <span className="ml-3 text-sm font-normal text-vinoy-ink/60">
-            Court {division.courtLabel}
-          </span>
-        )}
-      </h2>
+      <DivisionHeading division={division} />
 
       <div className="text-sm mb-3">
         <strong>Pairs:</strong>{' '}
@@ -315,16 +323,11 @@ function BracketPrint({ bracket }) {
   const wb = bracket.matches.filter(m => m.bracket === 'main')
   const lb = bracket.matches.filter(m => m.bracket === 'losers')
   const gf = bracket.matches.filter(m => m.bracket === 'grandFinal' || m.bracket === 'reset')
-  const isDouble = bracket.type === 'doubleElim'
+  const isDouble = bracket.kind === 'doubleElim'
 
   return (
     <div className="space-y-6">
-      <h2 className="font-display text-2xl font-bold text-vinoy-green">
-        {bracket.name || 'Bracket'}
-        <span className="ml-3 text-sm font-normal text-vinoy-ink/60">
-          {isDouble ? 'Double Elimination' : 'Single Elimination'}
-        </span>
-      </h2>
+      <DivisionHeading division={bracket} />
 
       <SeedList bracket={bracket} />
 

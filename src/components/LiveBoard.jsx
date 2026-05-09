@@ -4,30 +4,23 @@ import PinGate from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import LiveBracket from './LiveBracket.jsx'
-import ComingSoon from './ComingSoon.jsx'
 import OrnamentalRule from './OrnamentalRule.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
-import { getEventType } from '../utils/eventTypes.js'
 import { formatMatchTime } from '../utils/format.js'
 
 export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions } = state
-  const brackets = state.brackets || []
-  const evt = getEventType(tournament.type)
-  const engine = evt.engine
-  // Build a unified tab list: round-robin divisions first, then
-  // brackets. Each tab carries the underlying draw object plus a
-  // discriminant so the panel switcher knows what to render.
-  const tabs = [
-    ...divisions.filter(d => d.locked).map(d => ({ kind: 'rr', id: d.id, name: d.name || 'Division', draw: d })),
-    ...brackets.filter(b => b.locked && (b.matches?.length || 0) > 0).map(b => ({
-      kind: b.type === 'doubleElim' ? 'de' : 'se',
-      id: b.id,
-      name: b.name || (b.type === 'doubleElim' ? 'Double Elim' : 'Single Elim'),
-      draw: b,
-    })),
-  ]
+  // Single tab list spanning every locked division regardless of
+  // kind. Each tab knows what to render via division.kind.
+  const tabs = (divisions || [])
+    .filter(d => d.locked && (d.matches?.length || 0) > 0)
+    .map(d => ({
+      id: d.id,
+      kind: d.kind,
+      name: d.name || 'Division',
+      draw: d,
+    }))
   const [activeId, setActiveId] = useState(tabs[0]?.id ?? null)
   const [showPinGate, setShowPinGate] = useState(false)
   const [pendingAction, setPendingAction] = useState(null)
@@ -100,18 +93,14 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
       </header>
 
       {tabs.length === 0 ? (
-        engine === 'comingSoon' ? (
-          <ComingSoon state={state} />
-        ) : (
-          <div className="max-w-3xl mx-auto p-6 text-center text-vinoy-ink/60">
-            No draws are locked yet. Head back to Setup and lock a division
-            or generate a bracket.
-          </div>
-        )
+        <div className="max-w-3xl mx-auto p-6 text-center text-vinoy-ink/60">
+          No draws are locked yet. Head back to Setup and lock a division
+          or generate a bracket.
+        </div>
       ) : (
         <>
           <DrawTabs tabs={tabs} activeId={active.id} onSelect={setActiveId} />
-          {active.kind === 'rr' && (
+          {active.kind === 'roundRobin' ? (
             <DivisionPanel
               division={active.draw}
               passes={tournament.passes}
@@ -119,8 +108,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
               ifAuthed={ifAuthed}
               proAuthed={proAuthed}
             />
-          )}
-          {(active.kind === 'se' || active.kind === 'de') && (
+          ) : (
             <LiveBracket
               bracket={active.draw}
               dispatch={dispatch}
@@ -161,7 +149,11 @@ function DrawTabs({ tabs, activeId, onSelect }) {
           const total = (d.matches || []).length
           const isActive = t.id === activeId
           const kindLabel =
-            t.kind === 'rr' ? 'Round Robin' : t.kind === 'de' ? 'Double Elim' : 'Single Elim'
+            t.kind === 'roundRobin'
+              ? 'Round Robin'
+              : t.kind === 'doubleElim'
+                ? 'Double Elim'
+                : 'Single Elim'
           return (
             <button
               key={t.id}

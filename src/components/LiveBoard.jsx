@@ -76,7 +76,7 @@ export default function LiveBoard({ state, dispatch, saveStatus }) {
 
       <DivisionPanel
         division={active}
-        winningScore={tournament.winningScore}
+        passes={tournament.passes}
         dispatch={dispatch}
         ifAuthed={ifAuthed}
         proAuthed={proAuthed}
@@ -133,10 +133,16 @@ function DivisionTabs({ divisions, activeId, onSelect }) {
   )
 }
 
-function DivisionPanel({ division, winningScore, dispatch, ifAuthed, proAuthed }) {
+function winningScoreFor(passes, match) {
+  const idx = (match?.pass || 1) - 1
+  return passes?.[idx]?.winningScore ?? passes?.[0]?.winningScore ?? 7
+}
+
+function DivisionPanel({ division, passes, dispatch, ifAuthed, proAuthed }) {
   const queue = useMemo(() => upcomingMatches(division.matches, 3), [division.matches])
   const [now, next, after] = queue
   const allDone = division.matches.length > 0 && queue.length === 0
+  const [editing, setEditing] = useState(null) // a completed match being re-edited
 
   return (
     <div className="space-y-3">
@@ -151,7 +157,7 @@ function DivisionPanel({ division, winningScore, dispatch, ifAuthed, proAuthed }
         <NowPlayingCard
           match={now}
           division={division}
-          winningScore={winningScore}
+          winningScore={winningScoreFor(passes, now)}
           dispatch={dispatch}
           ifAuthed={ifAuthed}
           proAuthed={proAuthed}
@@ -160,14 +166,28 @@ function DivisionPanel({ division, winningScore, dispatch, ifAuthed, proAuthed }
 
       {(next || after) && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {next && <UpcomingCard label="On deck" match={next} division={division} />}
-          {after && <UpcomingCard label="In the hole" match={after} division={division} />}
+          {next && <UpcomingCard label="On deck" match={next} division={division} passes={passes} />}
+          {after && <UpcomingCard label="In the hole" match={after} division={division} passes={passes} />}
         </div>
       )}
 
-      <CompletedSummary division={division} />
+      <CompletedSummary
+        division={division}
+        proAuthed={proAuthed}
+        onEdit={(m) => ifAuthed(() => setEditing(m))}
+      />
 
-      <StandingsGrid division={division} />
+      <StandingsGrid division={division} passes={passes} />
+
+      {editing && (
+        <ScoreEditModal
+          match={division.matches.find(m => m.id === editing.id) || editing}
+          division={division}
+          winningScore={winningScoreFor(passes, editing)}
+          dispatch={dispatch}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   )
 }
@@ -185,7 +205,7 @@ function NowPlayingCard({ match, division, winningScore, dispatch, ifAuthed, pro
       <div className="bg-tennis-green text-white px-4 py-2 flex items-center justify-between">
         <span className="font-bold uppercase text-sm tracking-wide">Now playing</span>
         <span className="text-sm">
-          Round {match.round}
+          Round {match.pass || 1} · first to {winningScore}
           {division.courtLabel && ` · Court ${division.courtLabel}`}
         </span>
       </div>
@@ -368,13 +388,14 @@ function QuickFill({ winningScore, onPick }) {
   )
 }
 
-function UpcomingCard({ label, match, division }) {
+function UpcomingCard({ label, match, division, passes }) {
   const pairA = pairByNum(division, match.pairA)
   const pairB = pairByNum(division, match.pairB)
+  const ws = winningScoreFor(passes, match)
   return (
     <div className="bg-white rounded-2xl border border-gray-200 p-3">
       <div className="text-xs uppercase tracking-wide text-gray-500 mb-1">
-        {label} · Round {match.round}
+        {label} · Round {match.pass || 1} · to {ws}
       </div>
       <div className="flex items-center gap-2">
         <span className="w-6 h-6 rounded-full bg-gray-200 text-gray-700 flex items-center justify-center text-xs font-bold">
@@ -397,7 +418,7 @@ function UpcomingCard({ label, match, division }) {
   )
 }
 
-function CompletedSummary({ division }) {
+function CompletedSummary({ division, proAuthed, onEdit }) {
   const [open, setOpen] = useState(false)
   const completed = division.matches.filter(m => m.completed)
   if (completed.length === 0) return null
@@ -411,6 +432,11 @@ function CompletedSummary({ division }) {
       <summary className="cursor-pointer list-none p-3 flex items-center justify-between">
         <span className="text-sm font-semibold text-gray-700">
           Completed matches ({completed.length})
+          {proAuthed && (
+            <span className="ml-2 text-xs text-gray-400 font-normal">
+              tap a row to edit
+            </span>
+          )}
         </span>
         <span className="text-gray-400 text-xs">{open ? 'hide' : 'show'}</span>
       </summary>
@@ -419,9 +445,11 @@ function CompletedSummary({ division }) {
           const pairA = pairByNum(division, m.pairA)
           const pairB = pairByNum(division, m.pairB)
           const aWon = m.scoreA > m.scoreB
-          return (
-            <li key={m.id} className="p-3 flex items-center gap-2 text-sm">
-              <span className="text-xs text-gray-500 w-12">R{m.round}</span>
+          const Row = (
+            <>
+              <span className="text-xs text-gray-500 w-14 shrink-0">
+                R{m.pass || 1}·{m.round}
+              </span>
               <span className={`flex-1 truncate ${aWon ? 'font-bold text-tennis-green' : ''}`}>
                 {pairA?.label || `Pair ${m.pairA}`}
               </span>
@@ -431,10 +459,136 @@ function CompletedSummary({ division }) {
               <span className={`flex-1 truncate text-right ${!aWon ? 'font-bold text-tennis-green' : ''}`}>
                 {pairB?.label || `Pair ${m.pairB}`}
               </span>
+            </>
+          )
+          return proAuthed ? (
+            <li key={m.id}>
+              <button
+                type="button"
+                onClick={() => onEdit?.(m)}
+                className="w-full p-3 flex items-center gap-2 text-sm text-left hover:bg-gray-50"
+              >
+                {Row}
+                <span className="text-gray-300 ml-1" aria-hidden>✎</span>
+              </button>
+            </li>
+          ) : (
+            <li key={m.id} className="p-3 flex items-center gap-2 text-sm">
+              {Row}
             </li>
           )
         })}
       </ul>
     </details>
+  )
+}
+
+function ScoreEditModal({ match, division, winningScore, dispatch, onClose }) {
+  const pairA = pairByNum(division, match.pairA)
+  const pairB = pairByNum(division, match.pairB)
+  const [scoreA, setScoreA] = useState(String(match.scoreA ?? ''))
+  const [scoreB, setScoreB] = useState(String(match.scoreB ?? ''))
+
+  function save() {
+    const a = parseInt(scoreA)
+    const b = parseInt(scoreB)
+    if (isNaN(a) || isNaN(b) || a < 0 || b < 0) return
+    if (a === b) return alert('A feed-in match must have a winner.')
+    if (Math.max(a, b) !== winningScore) {
+      const ok = confirm(
+        `Winner's score should be ${winningScore} (first to ${winningScore}). Save anyway?`
+      )
+      if (!ok) return
+    }
+    dispatch({
+      type: 'RECORD_SCORE',
+      payload: { divisionId: division.id, matchId: match.id, scoreA: a, scoreB: b },
+    })
+    onClose?.()
+  }
+
+  function clear() {
+    if (!confirm('Mark this match as not played and put it back in the queue?')) return
+    dispatch({ type: 'CLEAR_SCORE', payload: { divisionId: division.id, matchId: match.id } })
+    onClose?.()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3">
+          <h2 className="text-lg font-bold text-tennis-green">Edit score</h2>
+          <p className="text-xs text-gray-500">
+            Round {match.pass || 1} · Match {match.round}.{match.slot} · first to {winningScore}
+          </p>
+        </div>
+
+        <div className="space-y-2 mb-4">
+          <Row
+            num={match.pairA}
+            label={pairA?.label || `Pair ${match.pairA}`}
+            value={scoreA}
+            onChange={setScoreA}
+            max={winningScore + 5}
+          />
+          <div className="text-center text-gray-400 text-xs font-bold">vs</div>
+          <Row
+            num={match.pairB}
+            label={pairB?.label || `Pair ${match.pairB}`}
+            value={scoreB}
+            onChange={setScoreB}
+            max={winningScore + 5}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={onClose}
+            className="py-3 rounded-xl border-2 border-gray-300 text-gray-700 font-semibold"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            className="py-3 rounded-xl bg-tennis-green text-white font-bold"
+          >
+            Save
+          </button>
+        </div>
+        <button
+          onClick={clear}
+          className="w-full mt-2 py-2 text-sm text-red-600 hover:underline"
+        >
+          Mark as not played
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Row({ num, label, value, onChange, max }) {
+  return (
+    <div className="flex items-center gap-3 bg-gray-50 rounded-xl p-3">
+      <div className="flex-shrink-0 w-9 h-9 rounded-full bg-tennis-green text-white flex items-center justify-center font-bold">
+        {num}
+      </div>
+      <div className="flex-1 min-w-0 font-semibold text-gray-900 truncate">{label}</div>
+      <input
+        type="number"
+        inputMode="numeric"
+        min="0"
+        max={max}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-16 h-12 text-center text-2xl font-mono font-bold border-2 border-gray-300 rounded-xl focus:border-tennis-green focus:outline-none"
+        autoFocus={num === 1}
+      />
+    </div>
   )
 }

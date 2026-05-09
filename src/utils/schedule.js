@@ -1,17 +1,33 @@
 /**
- * Round-robin schedule generation using the circle method.
+ * Round-robin schedule generation across one or more "passes".
  *
- * Each "team" is a tournament pair (1..N). For odd N we add a phantom
- * "bye" slot so every round still produces a well-formed pairing.
+ * A *pass* is a complete run-through where every pair plays every other
+ * pair once. Coaches think of a pass as one "round" of the tournament,
+ * and they may run multiple passes back-to-back with different target
+ * scores per pass (e.g. round 1 to 7, round 2 to 5, round 3 to 1).
  *
- * Returns a flat queue of matches in playing order. Round 1 matches first,
- * then round 2, etc. Each match references the round it belongs to and the
- * 1-indexed pair numbers, so the UI can show "now / next / on deck" for a
- * single court running matches sequentially.
+ * Internally each pass is built with the circle method. For pass 2+ we
+ * reverse the rotation direction so the playing order isn't identical to
+ * pass 1 — courts feel less repetitive without affecting which pairs face
+ * each other.
+ *
+ * Returns a flat queue of matches in playing order: pass 1's matches
+ * first, then pass 2, etc. Each match carries `pass`, `round` (the RR
+ * round inside the pass), and `slot` (playing order within that round).
  */
-export function generateSchedule(numPairs) {
-  if (numPairs < 2) return { rounds: [], matches: [] }
+export function generateSchedule(numPairs, passCount = 1) {
+  if (numPairs < 2) return { matches: [] }
+  const passes = Math.max(1, passCount | 0)
 
+  const matches = []
+  for (let p = 1; p <= passes; p++) {
+    const reverse = p % 2 === 0 // alternate direction per pass
+    matches.push(...buildPass(numPairs, p, reverse))
+  }
+  return { matches }
+}
+
+function buildPass(numPairs, passNum, reverse) {
   const teams = Array.from({ length: numPairs }, (_, i) => i + 1)
   const hasBye = teams.length % 2 === 1
   if (hasBye) teams.push(0) // 0 = bye slot
@@ -23,28 +39,32 @@ export function generateSchedule(numPairs) {
   let arr = [...teams]
 
   for (let r = 0; r < totalRounds; r++) {
-    const matches = []
+    const pairings = []
     let bye = null
     for (let i = 0; i < half; i++) {
       const a = arr[i]
       const b = arr[arr.length - 1 - i]
       if (a === 0) bye = b
       else if (b === 0) bye = a
-      else matches.push([a, b])
+      else pairings.push([a, b])
     }
-    rounds.push({ round: r + 1, matches, bye })
-    // rotate: keep first fixed, move last to slot 1
-    arr = [arr[0], arr[arr.length - 1], ...arr.slice(1, arr.length - 1)]
+    rounds.push({ pairings, bye })
+    if (reverse) {
+      // rotate the other direction: keep first fixed, move slot 1 to last
+      arr = [arr[0], ...arr.slice(2), arr[1]]
+    } else {
+      arr = [arr[0], arr[arr.length - 1], ...arr.slice(1, arr.length - 1)]
+    }
   }
 
-  // Flat queue: every match in the order it should be played
-  const matches = []
-  rounds.forEach(({ round, matches: pairings, bye }) => {
+  const out = []
+  rounds.forEach(({ pairings, bye }, rIdx) => {
     pairings.forEach(([a, b], idx) => {
-      matches.push({
-        id: `r${round}-m${idx + 1}`,
-        round,
-        slot: idx + 1, // playing order within the round
+      out.push({
+        id: `p${passNum}-r${rIdx + 1}-m${idx + 1}`,
+        pass: passNum,
+        round: rIdx + 1,
+        slot: idx + 1,
         pairA: a,
         pairB: b,
         bye,
@@ -54,30 +74,33 @@ export function generateSchedule(numPairs) {
       })
     })
   })
-
-  return { rounds, matches }
+  return out
 }
 
 /**
- * Build a fresh standings matrix: a 2D map indexed by pair number,
- * where matrix[a][b] = the score pair `a` recorded vs pair `b`.
- * Empty cells stay null.
+ * Build a fresh standings matrix.
+ *
+ * matrix[a][b] holds an array of scores that pair `a` recorded vs pair
+ * `b` across all passes — when there's only one pass it's a single
+ * value, but for multi-pass tournaments the same matchup happens once
+ * per pass and we keep all of them.
+ *
+ * Wins and totals are aggregated across every played match.
  */
 export function buildStandings(numPairs, matches) {
   const grid = {}
   for (let i = 1; i <= numPairs; i++) {
     grid[i] = {}
     for (let j = 1; j <= numPairs; j++) {
-      grid[i][j] = i === j ? 'X' : null
+      grid[i][j] = i === j ? 'X' : []
     }
   }
   matches.forEach(m => {
     if (!m.completed) return
-    grid[m.pairA][m.pairB] = m.scoreA
-    grid[m.pairB][m.pairA] = m.scoreB
+    grid[m.pairA][m.pairB].push(m.scoreA)
+    grid[m.pairB][m.pairA].push(m.scoreB)
   })
 
-  // Totals: total games won across all matches played
   const totals = {}
   const wins = {}
   for (let i = 1; i <= numPairs; i++) {
@@ -96,8 +119,7 @@ export function buildStandings(numPairs, matches) {
 }
 
 /**
- * Pop the next N upcoming (not-yet-completed) matches. The pro can use this
- * to call out "now playing", "on deck", and "in the hole".
+ * Pop the next N upcoming (not-yet-completed) matches in playing order.
  */
 export function upcomingMatches(matches, count = 3) {
   return matches.filter(m => !m.completed).slice(0, count)

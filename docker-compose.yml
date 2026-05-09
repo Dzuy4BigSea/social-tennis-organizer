@@ -16,6 +16,13 @@ services:
       - "8088:80"
     volumes:
       - feedin-data:/var/www/html/feedin/tennis-data
+    # Join the same docker network as the front-end nginx reverse proxy so
+    # `proxy_pass http://feedin;` resolves. Recreating the container (e.g.
+    # `docker compose pull && up -d`) keeps the attachment, which a manual
+    # `docker network connect` would not.
+    networks:
+      - default
+      - reverse_proxy
 
     # If your reverse proxy is Traefik, uncomment these labels and replace
     # the host rule with your actual domain. Otherwise add the container to
@@ -29,3 +36,14 @@ services:
 
 volumes:
   feedin-data:
+
+networks:
+  # The default per-project bridge — keeps the feedin container in its own
+  # private namespace too, useful if we add a sidecar later.
+  default:
+  # Pre-existing network that the front-end nginx container is on. Marking
+  # it `external: true` tells compose "attach to it, don't try to create it".
+  # If your nginx isn't on `claude-sync_default`, change `name:` accordingly.
+  reverse_proxy:
+    external: true
+    name: claude-sync_default

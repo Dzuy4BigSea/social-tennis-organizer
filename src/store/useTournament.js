@@ -743,6 +743,10 @@ export function useTournament() {
       // this, a 403 (wrong PIN) save would silently fail and the next poll
       // would replace the user's typing with the unmodified server snapshot.
       if (dirtyRef.current) return
+      // Don't poll once the pro has stepped away to Home. Otherwise the
+      // 5-second tick re-fetches the remote phase and dispatches a
+      // LOAD_STATE that yanks them back into the event they just left.
+      if (stateRef.current?.phase === 'home') return
       const remote = await loadFromRoom(code)
       if (!remote) return
       const current = stateRef.current

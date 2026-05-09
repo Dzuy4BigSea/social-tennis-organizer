@@ -52,14 +52,14 @@ export const EVENT_TYPES = [
     id: 'singlesDoubleElim',
     label: 'Singles — Double Elimination',
     blurb: 'Two losses to be eliminated. Winner’s and loser’s brackets.',
-    engine: 'comingSoon',
+    engine: 'doubleElim',
     entrantKind: 'singles',
   },
   {
     id: 'doublesDoubleElim',
     label: 'Doubles — Double Elimination',
     blurb: 'Two losses to be eliminated, for pairs.',
-    engine: 'comingSoon',
+    engine: 'doubleElim',
     entrantKind: 'doubles',
   },
   {

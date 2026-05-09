@@ -105,7 +105,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
         )
       )}
 
-      {engine === 'singleElim' && (
+      {(engine === 'singleElim' || engine === 'doubleElim') && (
         <LiveBracket
           state={state}
           dispatch={dispatch}

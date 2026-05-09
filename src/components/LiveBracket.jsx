@@ -27,9 +27,13 @@ export default function LiveBracket({ state, dispatch, ifAuthed, proAuthed }) {
     )
   }
 
-  const playable = enriched.find(m => m.ready && !m.completed)
-  const champion = enriched[enriched.length - 1]
-  const isComplete = champion?.completed
+  const isDoubleElim = bracket.type === 'doubleElim'
+  const visibleMatches = isDoubleElim
+    ? enriched.filter(m => m.bracket !== 'reset' || isResetNeeded(enriched))
+    : enriched
+  const playable = visibleMatches.find(m => m.ready && !m.completed)
+  const championMatch = pickChampionMatch(visibleMatches, isDoubleElim)
+  const isComplete = championMatch?.completed
 
   function openMatch(match) {
     if (!proAuthed) return
@@ -54,12 +58,21 @@ export default function LiveBracket({ state, dispatch, ifAuthed, proAuthed }) {
         </div>
       )}
 
-      <BracketGrid
-        bracket={bracket}
-        matches={enriched}
-        onPick={openMatch}
-        proAuthed={proAuthed}
-      />
+      {isDoubleElim ? (
+        <DoubleElimGrid
+          bracket={bracket}
+          matches={visibleMatches}
+          onPick={openMatch}
+          proAuthed={proAuthed}
+        />
+      ) : (
+        <BracketGrid
+          bracket={bracket}
+          matches={enriched}
+          onPick={openMatch}
+          proAuthed={proAuthed}
+        />
+      )}
 
       {editing && (
         <BracketScoreModal
@@ -97,6 +110,37 @@ function winnerEntrant(bracket, match) {
   return slot?.kind === 'entrant' ? slot.entrant : null
 }
 
+/**
+ * Tournament-deciding match for the champion banner.
+ *
+ * - Single elim: the very last match (the WB Final).
+ * - Double elim: GF1 if the WB-side wins (no reset needed); GF2
+ *   otherwise. Falls back to GF1 while undecided.
+ */
+function pickChampionMatch(matches, isDoubleElim) {
+  if (!matches.length) return null
+  if (!isDoubleElim) return matches[matches.length - 1]
+  const gf1 = matches.find(m => m.id === 'gf-m1')
+  const gf2 = matches.find(m => m.id === 'gf-m2')
+  if (!gf1) return matches[matches.length - 1]
+  if (!gf1.completed) return gf1
+  // gf-m1 completed: WB-side is pA, LB-side is pB by construction.
+  // If WB-side wins, no reset. Otherwise the reset decides it.
+  if (gf1.winnerSlot === 'A') return gf1
+  return gf2 || gf1
+}
+
+/**
+ * The grand-final reset only matters when the LB-side wins GF1, since
+ * the WB-side entered with zero losses. We hide the reset entirely
+ * until needed so it doesn't clutter the bracket view in the common
+ * case where the WB-side closes the tournament.
+ */
+function isResetNeeded(matches) {
+  const gf1 = matches.find(m => m.id === 'gf-m1')
+  return gf1?.completed && gf1.winnerSlot === 'B'
+}
+
 function NowPlayingCard({ match, onClick }) {
   return (
     <button
@@ -129,6 +173,8 @@ function SideRow({ side, score, dim }) {
       ? 'BYE'
       : side?.kind === 'pendingWinner'
       ? `Winner of ${matchLabel(side.matchId)}`
+      : side?.kind === 'pendingLoser'
+      ? `Loser of ${matchLabel(side.matchId)}`
       : '—'
   const seed = side?.kind === 'entrant' ? side.entrant.seed : null
   return (
@@ -155,9 +201,131 @@ function SideRow({ side, score, dim }) {
 }
 
 function matchLabel(id) {
-  const m = id?.match(/^r(\d+)-m(\d+)$/)
-  if (!m) return id
-  return `R${m[1]}.${m[2]}`
+  if (!id) return ''
+  if (id === 'gf-m1') return 'GF'
+  if (id === 'gf-m2') return 'GF Reset'
+  let m = id.match(/^wb-r(\d+)-m(\d+)$/)
+  if (m) return `WB ${m[1]}.${m[2]}`
+  m = id.match(/^lb-r(\d+)-m(\d+)$/)
+  if (m) return `LB ${m[1]}.${m[2]}`
+  m = id.match(/^r(\d+)-m(\d+)$/)
+  if (m) return `R${m[1]}.${m[2]}`
+  return id
+}
+
+/**
+ * Double-elimination layout: three stacked panels (Winner's Bracket,
+ * Loser's Bracket, Grand Final). Each panel renders the same round-
+ * column grid as the single-elim view, so a coach can scan WB and LB
+ * progress side-by-side without a custom bracket-line diagram.
+ *
+ * Stacking instead of overlaying keeps the layout usable on iPad
+ * portrait — a true crossed bracket would need a much larger canvas.
+ */
+function DoubleElimGrid({ bracket, matches, onPick, proAuthed }) {
+  const wb = matches.filter(m => m.bracket === 'main')
+  const lb = matches.filter(m => m.bracket === 'losers')
+  const gf = matches.filter(m => m.bracket === 'grandFinal' || m.bracket === 'reset')
+
+  return (
+    <div className="space-y-3">
+      <BracketSection
+        title="Winner’s Bracket"
+        matches={wb}
+        totalRounds={Math.max(...wb.map(m => m.round), 0)}
+        onPick={onPick}
+        proAuthed={proAuthed}
+      />
+      {lb.length > 0 && (
+        <BracketSection
+          title="Loser’s Bracket"
+          matches={lb}
+          totalRounds={Math.max(...lb.map(m => m.round), 0)}
+          onPick={onPick}
+          proAuthed={proAuthed}
+          accent="gold"
+        />
+      )}
+      {gf.length > 0 && (
+        <BracketSection
+          title="Grand Final"
+          matches={gf}
+          totalRounds={Math.max(...gf.map(m => m.slot), 0)}
+          // Each GF match is its own "round" visually; pass slot as round.
+          roundOverride={(m) => m.slot}
+          roundLabel={(r, total) => (r === 1 ? 'GF' : 'Reset')}
+          onPick={onPick}
+          proAuthed={proAuthed}
+          accent="green"
+        />
+      )}
+    </div>
+  )
+}
+
+/**
+ * A bracket panel with a header and round columns. The shared
+ * round-column logic used to live inside BracketGrid; this thin
+ * wrapper lets DoubleElimGrid render WB / LB / GF with consistent
+ * styling and small per-section overrides (round labels, accent).
+ */
+function BracketSection({
+  title,
+  matches,
+  totalRounds,
+  onPick,
+  proAuthed,
+  accent,
+  roundOverride,
+  roundLabel,
+}) {
+  const cols = []
+  for (let r = 1; r <= totalRounds; r++) {
+    cols.push(
+      matches.filter(m => (roundOverride ? roundOverride(m) : m.round) === r)
+    )
+  }
+  const headerClass =
+    accent === 'gold'
+      ? 'border-l-4 border-l-vinoy-gold'
+      : accent === 'green'
+      ? 'border-l-4 border-l-vinoy-green'
+      : ''
+  return (
+    <div className={`bg-white rounded-2xl border border-vinoy-border shadow-sm overflow-hidden ${headerClass}`}>
+      <div className="px-4 py-3 border-b border-vinoy-border">
+        <h3 className="font-display text-lg font-bold text-vinoy-green">{title}</h3>
+      </div>
+      <div className="overflow-x-auto p-3">
+        <div className="flex gap-3 min-w-max">
+          {cols.map((roundMatches, idx) => (
+            <div key={idx} className="flex flex-col gap-3 min-w-[12rem]">
+              <div className="text-xs font-semibold text-vinoy-ink/60 uppercase tracking-wider px-2">
+                {roundLabel
+                  ? roundLabel(idx + 1, totalRounds)
+                  : sectionRoundLabel(idx + 1, totalRounds)}
+              </div>
+              {roundMatches.map((m) => (
+                <BracketMatch
+                  key={m.id}
+                  match={m}
+                  onClick={() => onPick(m)}
+                  clickable={proAuthed && (m.ready || m.completed)}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function sectionRoundLabel(round, total) {
+  if (round === total) return 'Final'
+  if (round === total - 1) return 'Semis'
+  if (round === total - 2 && total > 3) return 'Quarters'
+  return `Round ${round}`
 }
 
 function BracketGrid({ bracket, matches, onPick, proAuthed }) {
@@ -231,6 +399,8 @@ function Side({ side, score, winner }) {
       ? 'Bye'
       : side?.kind === 'pendingWinner'
       ? `Winner of ${matchLabel(side.matchId)}`
+      : side?.kind === 'pendingLoser'
+      ? `Loser of ${matchLabel(side.matchId)}`
       : '—'
   const seed = side?.kind === 'entrant' ? side.entrant.seed : null
   return (

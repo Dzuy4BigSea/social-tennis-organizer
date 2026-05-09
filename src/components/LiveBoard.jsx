@@ -8,8 +8,9 @@ import ComingSoon from './ComingSoon.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
 import { getEventType } from '../utils/eventTypes.js'
+import { formatMatchTime } from '../utils/format.js'
 
-export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
+export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions } = state
   const evt = getEventType(tournament.type)
   const engine = evt.engine
@@ -65,6 +66,15 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome }) {
             >
               Home
             </button>
+            {onPrint && (
+              <button
+                onClick={onPrint}
+                className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"
+                title="Print or save as PDF"
+              >
+                Print
+              </button>
+            )}
             <button
               onClick={() => ifAuthed(() => dispatch({ type: 'BACK_TO_SETUP' }))}
               className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"
@@ -236,11 +246,12 @@ function NowPlayingCard({ match, division, winningScore, dispatch, ifAuthed, pro
 
   return (
     <div className="bg-white rounded-2xl border-2 border-tennis-green shadow-md overflow-hidden">
-      <div className="bg-tennis-green text-white px-4 py-2 flex items-center justify-between">
+      <div className="bg-tennis-green text-white px-4 py-2 flex items-center justify-between flex-wrap gap-2">
         <span className="font-bold uppercase text-sm tracking-wide">Now playing</span>
         <span className="text-sm">
           Round {match.pass || 1} · first to {winningScore}
           {division.courtLabel && ` · Court ${division.courtLabel}`}
+          {match.scheduledAt && ` · ${formatMatchTime(match.scheduledAt)}`}
         </span>
       </div>
       <div className="p-4">

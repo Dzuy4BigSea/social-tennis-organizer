@@ -5,6 +5,7 @@ import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import SetupBracket from './SetupBracket.jsx'
 import ComingSoon from './ComingSoon.jsx'
+import SchedulePanel from './SchedulePanel.jsx'
 import {
   getEventType,
   VARIANTS,
@@ -13,7 +14,7 @@ import {
   getRatingLabel,
 } from '../utils/eventTypes.js'
 
-export default function Setup({ state, dispatch, saveStatus, onGoHome }) {
+export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions, bracket } = state
   const [showPinSetup, setShowPinSetup] = useState(false)
   const [showPinGate, setShowPinGate] = useState(false)
@@ -52,6 +53,7 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome }) {
         onRoomCode={ensureRoomCode}
         onSetPin={() => setShowPinSetup(true)}
         onGoHome={handleGoHome}
+        onPrint={onPrint}
         saveStatus={saveStatus}
         onFixPin={() => setShowPinGate(true)}
       />
@@ -117,6 +119,8 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome }) {
       )}
 
       {engine === 'comingSoon' && <ComingSoon state={state} />}
+
+      <SchedulePanel state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
 
       {canGoLive(engine, divisions, bracket) && (
         <div className="sticky bottom-4 mt-6 z-30">
@@ -253,8 +257,8 @@ function EventDetailsCard({ tournament, evt, ifAuthed, dispatch, rrLocked }) {
           <span className="text-sm text-vinoy-ink/80">Ongoing (recurring)</span>
         </label>
         {!tournament.ongoing && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label className="block">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <label className="block col-span-2 sm:col-span-1">
               <span className="text-xs font-semibold text-vinoy-ink/70">Start date</span>
               <input
                 type="date"
@@ -264,13 +268,33 @@ function EventDetailsCard({ tournament, evt, ifAuthed, dispatch, rrLocked }) {
               />
             </label>
             <label className="block">
+              <span className="text-xs font-semibold text-vinoy-ink/70">Start time</span>
+              <input
+                type="time"
+                value={tournament.startTime || ''}
+                onChange={(e) => set({ startTime: e.target.value })}
+                className="mt-1 w-full border-2 border-vinoy-border rounded-xl px-3 py-2 focus:border-vinoy-green focus:outline-none"
+              />
+            </label>
+            <label className="block col-span-2 sm:col-span-1">
               <span className="text-xs font-semibold text-vinoy-ink/70">
-                End date <span className="font-normal text-vinoy-ink/40">(optional)</span>
+                End date <span className="font-normal text-vinoy-ink/40">(opt)</span>
               </span>
               <input
                 type="date"
                 value={tournament.endDate || ''}
                 onChange={(e) => set({ endDate: e.target.value })}
+                className="mt-1 w-full border-2 border-vinoy-border rounded-xl px-3 py-2 focus:border-vinoy-green focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-vinoy-ink/70">
+                End time <span className="font-normal text-vinoy-ink/40">(opt)</span>
+              </span>
+              <input
+                type="time"
+                value={tournament.endTime || ''}
+                onChange={(e) => set({ endTime: e.target.value })}
                 className="mt-1 w-full border-2 border-vinoy-border rounded-xl px-3 py-2 focus:border-vinoy-green focus:outline-none"
               />
             </label>
@@ -387,7 +411,7 @@ function RoundsEditor({ passes, locked, onChange }) {
   )
 }
 
-function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, saveStatus, onFixPin }) {
+function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint, saveStatus, onFixPin }) {
   const shareUrl = roomCode
     ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
     : ''
@@ -405,6 +429,15 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, saveStat
           >
             Home
           </button>
+          {onPrint && (
+            <button
+              onClick={onPrint}
+              className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"
+              title="Print or save as PDF"
+            >
+              Print
+            </button>
+          )}
           <button
             onClick={onSetPin}
             className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"

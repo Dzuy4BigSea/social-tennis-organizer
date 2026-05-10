@@ -178,7 +178,105 @@ function DivisionHeading({ division }) {
 
 // ----- Round robin -----
 
+/**
+ * Multi-group divisions print as one section per group, each with
+ * its own pair list and per-round match tables. Single-group
+ * divisions take the plain-RR path below for backward compat.
+ */
 function DivisionPrint({ division }) {
+  if (Array.isArray(division.groups) && division.groups.length > 1) {
+    return (
+      <section>
+        <DivisionHeading division={division} />
+        {division.groups.map((g, idx) => (
+          <div key={g.id} className={idx > 0 ? 'mt-6' : ''}>
+            <GroupPrint division={division} group={g} />
+          </div>
+        ))}
+        <FinalsPrint division={division} />
+      </section>
+    )
+  }
+  return <DivisionPrintInner division={division} />
+}
+
+function GroupPrint({ division, group }) {
+  const memberPairs = group.memberIndices
+    .map(i => division.pairs[i])
+    .filter(Boolean)
+  const groupMatches = (division.matches || []).filter(
+    m => m.groupIndex === group.index
+  )
+  const subDivision = {
+    ...division,
+    pairs: memberPairs,
+    matches: groupMatches.map(m => ({
+      ...m,
+      pairA: group.memberIndices.indexOf(m.pairA - 1) + 1,
+      pairB: group.memberIndices.indexOf(m.pairB - 1) + 1,
+      bye: m.bye ? group.memberIndices.indexOf(m.bye - 1) + 1 : null,
+    })),
+  }
+  return (
+    <div className="break-inside-avoid">
+      <h3 className="font-display text-lg font-bold text-vinoy-green mb-2">
+        {group.name}
+      </h3>
+      <DivisionPrintInner division={subDivision} embedded />
+    </div>
+  )
+}
+
+function FinalsPrint({ division }) {
+  const matches = division.finalsMatches || []
+  if (matches.length === 0) return null
+  const finalsFormat = matches[0].finalsFormat || 'match'
+  return (
+    <div className="mt-6 break-inside-avoid">
+      <h3 className="font-display text-lg font-bold text-vinoy-gold mb-2">
+        Finals {finalsFormat === 'roundRobin' ? '— round-robin' : ''}
+      </h3>
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="border-b border-vinoy-border text-xs text-vinoy-ink/60">
+            <th className="text-left py-1 pr-2 w-20">Match</th>
+            <th className="text-left py-1 pr-2">Side A</th>
+            <th className="text-center py-1 px-2 w-20">Score</th>
+            <th className="text-left py-1 pr-2">Side B</th>
+            <th className="text-center py-1 px-2 w-20">Score</th>
+          </tr>
+        </thead>
+        <tbody>
+          {matches.map(m => (
+            <tr key={m.id} className="border-b border-vinoy-border/60">
+              <td className="py-2 pr-2 font-mono text-xs text-vinoy-ink/60">
+                {m.id.replace('final-', 'F')}
+              </td>
+              <td className="py-2 pr-2">{finalsSlotLabel(m.slotA)}</td>
+              <td className="py-2 px-2 text-center font-mono">
+                {m.completed ? m.scoreA : <span className="text-vinoy-ink/30">____</span>}
+              </td>
+              <td className="py-2 pr-2">{finalsSlotLabel(m.slotB)}</td>
+              <td className="py-2 px-2 text-center font-mono">
+                {m.completed ? m.scoreB : <span className="text-vinoy-ink/30">____</span>}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function finalsSlotLabel(slot) {
+  if (!slot || slot.kind !== 'placeholder') return '—'
+  const groupLetter = String.fromCharCode(65 + (slot.groupIndex || 0))
+  const ord =
+    slot.place === 1 ? '1st' : slot.place === 2 ? '2nd' : slot.place === 3 ? '3rd' : `${slot.place}th`
+  return `${ord} of Group ${groupLetter}`
+}
+
+function DivisionPrintInner({ division, embedded }) {
   const byRound = {}
   division.matches.forEach(m => {
     const key = `${m.pass || 1}-${m.round}`
@@ -192,7 +290,7 @@ function DivisionPrint({ division }) {
 
   return (
     <section>
-      <DivisionHeading division={division} />
+      {!embedded && <DivisionHeading division={division} />}
 
       <div className="text-sm mb-3">
         <strong>Pairs:</strong>{' '}

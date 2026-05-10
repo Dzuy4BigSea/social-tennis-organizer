@@ -9,6 +9,9 @@ import OrnamentalRule from './OrnamentalRule.jsx'
 import AddDivisionDialog from './AddDivisionDialog.jsx'
 import ScoringEditor from './ScoringEditor.jsx'
 import PassesEditor from './PassesEditor.jsx'
+import WaitListPanel from './WaitListPanel.jsx'
+import SubstituteDialog from './SubstituteDialog.jsx'
+import GroupAssignmentsPanel from './GroupAssignmentsPanel.jsx'
 import { getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }) {
@@ -318,6 +321,7 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
 function PairBasedDivisionCard({ division, dispatch, ifAuthed }) {
   const { id, name, courtLabel, pairs, locked } = division
   const [expanded, setExpanded] = useState(true)
+  const [substituteFor, setSubstituteFor] = useState(null)
   const canLock = pairs.length >= 2
   const isDoubles = division.entrantKind !== 'singles'
 
@@ -418,6 +422,7 @@ function PairBasedDivisionCard({ division, dispatch, ifAuthed }) {
             dispatch={dispatch}
             ifAuthed={ifAuthed}
             isDoubles={isDoubles}
+            onSubstitute={(pair) => setSubstituteFor(pair)}
           />
           {division.kind === 'feedIn' ? (
             <PassesEditor
@@ -446,7 +451,50 @@ function PairBasedDivisionCard({ division, dispatch, ifAuthed }) {
               }
             />
           )}
+
+          {locked && (
+            <GroupAssignmentsPanel
+              division={division}
+              dispatch={dispatch}
+              ifAuthed={ifAuthed}
+            />
+          )}
+
+          <WaitListPanel
+            divisionId={id}
+            waitList={division.waitList || []}
+            isDoubles={isDoubles}
+            locked={locked}
+            dispatch={dispatch}
+            ifAuthed={ifAuthed}
+            promoteAction="PROMOTE_WAITLIST_TO_PAIR"
+          />
         </div>
+      )}
+
+      {substituteFor && (
+        <SubstituteDialog
+          title={substituteFor.label}
+          isDoubles={isDoubles}
+          current={substituteFor.label}
+          waitList={division.waitList || []}
+          onClose={() => setSubstituteFor(null)}
+          onSubmit={({ p1, p2, fromWaitListId }) => {
+            ifAuthed(() =>
+              dispatch({
+                type: 'SUBSTITUTE_PAIR',
+                payload: {
+                  divisionId: id,
+                  pairId: substituteFor.id,
+                  p1,
+                  p2,
+                  fromWaitListId,
+                },
+              })
+            )
+            setSubstituteFor(null)
+          }}
+        />
       )}
     </div>
   )
@@ -477,7 +525,7 @@ function MetaChip({ children }) {
   )
 }
 
-function PairList({ division, dispatch, ifAuthed, isDoubles = true }) {
+function PairList({ division, dispatch, ifAuthed, isDoubles = true, onSubstitute }) {
   const [p1, setP1] = useState('')
   const [p2, setP2] = useState('')
   const { pairs, locked } = division
@@ -550,6 +598,15 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true }) {
                 </>
               )}
             </div>
+            {locked && onSubstitute && (
+              <button
+                onClick={() => onSubstitute(pair)}
+                className="shrink-0 text-xs px-2 py-1 rounded-lg border border-vinoy-gold/60 text-vinoy-gold hover:bg-vinoy-gold hover:text-white transition"
+                title="Sub a player in for this pair"
+              >
+                Sub
+              </button>
+            )}
             {!locked && (
               <button
                 onClick={() =>

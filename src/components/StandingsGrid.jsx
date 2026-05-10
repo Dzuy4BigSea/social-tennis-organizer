@@ -6,9 +6,15 @@ import { buildStandings } from '../utils/schedule.js'
  * rows = pairs, columns = pairs, cell shows the score(s) the row pair
  * recorded against the column pair across every round. The "Total"
  * column sums games won across the whole tournament.
+ *
+ * Pass `groupIndex` to scope the grid to one group of a multi-group
+ * division — pairs come from `division.groups[groupIndex]` and
+ * matches are filtered + remapped to local 1..groupSize indices the
+ * standings algorithm expects.
  */
-export default function StandingsGrid({ division, passes }) {
-  const { pairs, matches } = division
+export default function StandingsGrid({ division, passes, groupIndex }) {
+  const scoped = scopeToGroup(division, groupIndex)
+  const { pairs, matches } = scoped
   const numPairs = pairs.length
   const { grid, totals, wins } = buildStandings(numPairs, matches)
   const passList = passes && passes.length ? passes : [{ winningScore: 7 }]
@@ -122,4 +128,30 @@ export default function StandingsGrid({ division, passes }) {
       )}
     </div>
   )
+}
+
+/**
+ * Slice a (possibly multi-group) division down to one group's data
+ * so the rest of this component can operate on a single, simple
+ * matrix. `division.matches` stores division-wide pair indices —
+ * we remap those to local 1..groupSize indices for buildStandings.
+ */
+function scopeToGroup(division, groupIndex) {
+  if (groupIndex == null || !Array.isArray(division.groups)) {
+    return { pairs: division.pairs, matches: division.matches || [] }
+  }
+  const group = division.groups[groupIndex]
+  if (!group) return { pairs: [], matches: [] }
+  const pairs = group.memberIndices.map(i => division.pairs[i]).filter(Boolean)
+  const localOf = (globalOneBased) =>
+    group.memberIndices.indexOf(globalOneBased - 1) + 1
+  const matches = (division.matches || [])
+    .filter(m => m.groupIndex === groupIndex)
+    .map(m => ({
+      ...m,
+      pairA: localOf(m.pairA),
+      pairB: localOf(m.pairB),
+      bye: m.bye ? localOf(m.bye) : null,
+    }))
+  return { pairs, matches }
 }

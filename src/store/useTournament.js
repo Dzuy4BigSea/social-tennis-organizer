@@ -66,6 +66,12 @@ export const initialState = {
     // Per-division settings used to pre-fill the Add Division dialog.
     // Each division stores its own kind/passes/scoring on itself.
     defaults: { variant: 'all', rating: '', entrantKind: 'singles' },
+    // Event-wide scheduling. Courts are defined once here so the
+    // schedule grid has a stable list of rows (instead of inferring
+    // court rows from per-division courtLabel, which jitters as
+    // assignments change). slotMinutes is the grid's column width.
+    courts: ['Court 1'],
+    slotMinutes: 30,
     // Sharing/auth
     roomCode: null,
     pinHash: null,
@@ -232,6 +238,30 @@ function migrate(state) {
         if (!isPairBased(d) || d.groupCount != null) return d
         return { ...d, groupCount: 1 }
       }),
+    }
+  }
+  // Event-level courts list + slot granularity for the schedule grid.
+  // For events created before scheduling existed, seed the courts
+  // array from any per-division courtLabel values the pro had set
+  // (de-duped), falling back to "Court 1" so the grid always has at
+  // least one row.
+  if (!Array.isArray(next.tournament?.courts)) {
+    const fromDivisions = (next.divisions || [])
+      .map(d => (d.courtLabel || '').trim())
+      .filter(Boolean)
+    const seeded = Array.from(new Set(fromDivisions))
+    next = {
+      ...next,
+      tournament: {
+        ...next.tournament,
+        courts: seeded.length > 0 ? seeded : ['Court 1'],
+      },
+    }
+  }
+  if (typeof next.tournament?.slotMinutes !== 'number') {
+    next = {
+      ...next,
+      tournament: { ...next.tournament, slotMinutes: 30 },
     }
   }
   // Home-screen migration: if state has no anchoring room code, the
@@ -890,16 +920,189 @@ function reducer(state, action) {
     }
 
     case 'SET_MATCH_SCHEDULE': {
-      const { divisionId, matchId, scheduledAt } = action.payload
+      // Single source of truth for setting a match's time + court.
+      // Both fields are optional; passing `undefined` leaves the
+      // existing value alone (use `null` to explicitly clear).
+      const { divisionId, matchId, scheduledAt, court } = action.payload
       return {
         ...state,
         divisions: state.divisions.map(d => {
           if (d.id !== divisionId) return d
           return {
             ...d,
-            matches: d.matches.map(m =>
-              m.id === matchId ? { ...m, scheduledAt: scheduledAt || null } : m
-            ),
+            matches: d.matches.map(m => {
+              if (m.id !== matchId) return m
+              const next = { ...m }
+              if (scheduledAt !== undefined) {
+                next.scheduledAt = scheduledAt || null
+              }
+              if (court !== undefined) {
+                next.court = court || null
+              }
+              return next
+            }),
+          }
+        }),
+      }
+    }
+
+    case 'SET_FINALS_MATCH_SCHEDULE': {
+      // Same as SET_MATCH_SCHEDULE but for the per-division
+      // finalsMatches[] array (multi-group / 1v2 final). Kept as a
+      // separate action because the matches live on a different
+      // collection — saves a "is this a finals match?" lookup at
+      // dispatch time.
+      const { divisionId, matchId, scheduledAt, court } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            finalsMatches: (d.finalsMatches || []).map(m => {
+              if (m.id !== matchId) return m
+              const next = { ...m }
+              if (scheduledAt !== undefined) next.scheduledAt = scheduledAt || null
+              if (court !== undefined) next.court = court || null
+              return next
+            }),
+          }
+        }),
+      }
+    }
+
+    case 'ADD_EVENT_COURT': {
+      const name = (action.payload?.name || '').trim()
+      if (!name) return state
+      const courts = state.tournament.courts || []
+      if (courts.includes(name)) return state
+      return {
+        ...state,
+        tournament: { ...state.tournament, courts: [...courts, name] },
+      }
+    }
+
+    case 'RENAME_EVENT_COURT': {
+      // Renaming a court has to also update every match that
+      // referenced the old name — otherwise the schedule grid
+      // would orphan those matches into a phantom row.
+      const { from, to } = action.payload
+      const oldName = (from || '').trim()
+      const newName = (to || '').trim()
+      if (!oldName || !newName || oldName === newName) return state
+      const courts = (state.tournament.courts || []).map(c =>
+        c === oldName ? newName : c
+      )
+      return {
+        ...state,
+        tournament: { ...state.tournament, courts },
+        divisions: state.divisions.map(d => ({
+          ...d,
+          courtLabel: d.courtLabel === oldName ? newName : d.courtLabel,
+          matches: (d.matches || []).map(m =>
+            m.court === oldName ? { ...m, court: newName } : m
+          ),
+          finalsMatches: (d.finalsMatches || []).map(m =>
+            m.court === oldName ? { ...m, court: newName } : m
+          ),
+        })),
+      }
+    }
+
+    case 'REMOVE_EVENT_COURT': {
+      // Removing a court clears the court reference on any matches
+      // that pointed at it. The matches themselves stay scheduled
+      // (just unassigned to a court) so the pro doesn't lose times.
+      const name = (action.payload?.name || '').trim()
+      if (!name) return state
+      const courts = (state.tournament.courts || []).filter(c => c !== name)
+      return {
+        ...state,
+        tournament: { ...state.tournament, courts },
+        divisions: state.divisions.map(d => ({
+          ...d,
+          matches: (d.matches || []).map(m =>
+            m.court === name ? { ...m, court: null } : m
+          ),
+          finalsMatches: (d.finalsMatches || []).map(m =>
+            m.court === name ? { ...m, court: null } : m
+          ),
+        })),
+      }
+    }
+
+    case 'REORDER_EVENT_COURTS': {
+      // Drag-and-drop reorder of the court list. Pure metadata
+      // change — no match references need touching.
+      const order = action.payload?.order || []
+      const valid = order.filter(c =>
+        (state.tournament.courts || []).includes(c)
+      )
+      // Only commit if the new order covers every existing court
+      // (prevents a malformed payload from silently dropping rows).
+      if (valid.length !== (state.tournament.courts || []).length) return state
+      return {
+        ...state,
+        tournament: { ...state.tournament, courts: valid },
+      }
+    }
+
+    case 'SET_SLOT_MINUTES': {
+      const v = parseInt(action.payload?.minutes, 10)
+      if (![15, 20, 30, 60].includes(v)) return state
+      return {
+        ...state,
+        tournament: { ...state.tournament, slotMinutes: v },
+      }
+    }
+
+    case 'AUTO_FILL_DIVISION_SCHEDULE': {
+      // Sequential one-court-at-a-time fill: each match takes the
+      // next available slot on the assigned court starting from
+      // `startAt`. Matches that already have a `scheduledAt` are
+      // left alone unless `overwrite` is true. Courts cycle through
+      // `courts` so a 4-match RR with two courts spreads pairs of
+      // matches across the two courts in parallel. Plays nicely
+      // with the manual schedule grid — pros run auto-fill to seed,
+      // then drag exceptions where they want them.
+      const {
+        divisionId,
+        startAt,
+        courts,
+        slotMinutes,
+        overwrite = false,
+      } = action.payload || {}
+      if (!startAt || !Array.isArray(courts) || courts.length === 0) return state
+      const slot = parseInt(slotMinutes, 10) || 30
+      const baseDate = parseLocalDateTime(startAt)
+      if (!baseDate) return state
+      let cursor = 0
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          // Build a per-court "next free" pointer so matches
+          // distribute across courts in parallel rather than
+          // stacking up on court 1.
+          const perCourtSlot = courts.map(() => 0)
+          const place = (m) => {
+            if (m.scheduledAt && !overwrite) return m
+            const courtIdx = cursor % courts.length
+            const slotIdx = perCourtSlot[courtIdx]
+            perCourtSlot[courtIdx] = slotIdx + 1
+            cursor += 1
+            const t = new Date(baseDate)
+            t.setMinutes(t.getMinutes() + slotIdx * slot)
+            return {
+              ...m,
+              scheduledAt: formatLocalDateTime(t),
+              court: courts[courtIdx],
+            }
+          }
+          return {
+            ...d,
+            matches: (d.matches || []).map(place),
+            finalsMatches: (d.finalsMatches || []).map(place),
           }
         }),
       }
@@ -1010,6 +1213,28 @@ export const DEFAULT_FEED_IN_PASSES = [
  */
 function isPairBased(d) {
   return d && (d.kind === 'roundRobin' || d.kind === 'feedIn')
+}
+
+/**
+ * Parse the format the HTML datetime-local input emits
+ * (`YYYY-MM-DDTHH:MM`) into a local-time Date. Native `new Date(s)`
+ * works on most modern browsers but treats the string as UTC in
+ * older ones — explicit parsing avoids that timezone footgun.
+ */
+function parseLocalDateTime(s) {
+  if (!s || typeof s !== 'string') return null
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!m) return null
+  return new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], 0)
+}
+
+/**
+ * Inverse of parseLocalDateTime — Date back to the
+ * `YYYY-MM-DDTHH:MM` format the datetime-local input expects.
+ */
+function formatLocalDateTime(d) {
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /**

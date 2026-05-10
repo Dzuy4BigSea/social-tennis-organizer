@@ -35,10 +35,11 @@ export default function VinoyHotelSilhouette({ className = '' }) {
     >
       <g
         stroke="currentColor"
-        strokeWidth="1.05"
+        strokeWidth="1.4"
         fill="none"
         strokeLinecap="round"
         strokeLinejoin="round"
+        vectorEffect="non-scaling-stroke"
       >
         {/* ===== Horizon ===== */}
         <path d="M 0 420 L 110 420" opacity="0.55" />

@@ -464,7 +464,11 @@ function BracketScoreModal({ match, division, dispatch, ifAuthed, onClose }) {
 
   function save() {
     // Persist any name changes first so downstream display picks
-    // up new labels even if the score itself is empty.
+    // up new labels even if the score itself is empty. We use
+    // SUBSTITUTE_ENTRANT (not UPDATE_ENTRANT) because the draw is
+    // locked at this point — substitute is the action that's
+    // allowed post-lock and preserves the entrant id, which is
+    // what every match references.
     ifAuthed(() => {
       const persistName = (entrant, p1, p2) => {
         if (!entrant) return
@@ -472,8 +476,8 @@ function BracketScoreModal({ match, division, dispatch, ifAuthed, onClose }) {
         const b = p2.trim()
         if (a !== (entrant.p1 || '') || b !== (entrant.p2 || '')) {
           dispatch({
-            type: 'UPDATE_ENTRANT',
-            payload: { divisionId: division.id, id: entrant.id, patch: { p1: a, p2: b } },
+            type: 'SUBSTITUTE_ENTRANT',
+            payload: { divisionId: division.id, entrantId: entrant.id, p1: a, p2: b },
           })
         }
       }

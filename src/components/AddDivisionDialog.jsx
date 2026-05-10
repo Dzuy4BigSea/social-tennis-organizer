@@ -48,6 +48,9 @@ export default function AddDivisionDialog({ defaults, onCreate, onClose }) {
     rating: defaults.rating || '',
     entrantKind: defaults.entrantKind || 'singles',
     name: '',
+    groupCount: 1,
+    advancePerGroup: 1,
+    finalsEnabled: false,
   })
 
   function set(patch) {
@@ -153,6 +156,52 @@ export default function AddDivisionDialog({ defaults, onCreate, onClose }) {
             </div>
           </div>
 
+          {(form.kind === 'roundRobin' || form.kind === 'feedIn') && (
+            <div className="border-t border-vinoy-border pt-4">
+              <ChipPicker
+                label="Number of groups"
+                options={[
+                  { id: 1, label: '1 (single group)' },
+                  { id: 2, label: '2 groups' },
+                  { id: 3, label: '3 groups' },
+                  { id: 4, label: '4 groups' },
+                ]}
+                value={form.groupCount}
+                onChange={(v) => set({ groupCount: v })}
+                small
+              />
+
+              {form.groupCount > 1 && (
+                <div className="mt-3">
+                  <ChipPicker
+                    label="Top finishers per group advance"
+                    options={[
+                      { id: 1, label: 'Top 1' },
+                      { id: 2, label: 'Top 2' },
+                    ]}
+                    value={form.advancePerGroup}
+                    onChange={(v) => set({ advancePerGroup: v })}
+                    small
+                  />
+                </div>
+              )}
+
+              <label className="flex items-center gap-2 mt-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.finalsEnabled}
+                  onChange={(e) => set({ finalsEnabled: e.target.checked })}
+                  className="w-4 h-4 accent-vinoy-green"
+                />
+                <span className="text-sm text-vinoy-ink/80">
+                  {form.groupCount === 1
+                    ? 'Add final match between 1st and 2nd'
+                    : finalsBlurb(form.groupCount, form.advancePerGroup)}
+                </span>
+              </label>
+            </div>
+          )}
+
           <label className="block">
             <span className="text-xs font-semibold text-vinoy-ink/70">
               Name <span className="font-normal text-vinoy-ink/40">(optional, auto-filled if blank)</span>
@@ -178,6 +227,12 @@ export default function AddDivisionDialog({ defaults, onCreate, onClose }) {
       </div>
     </div>
   )
+}
+
+function finalsBlurb(groupCount, advancePerGroup) {
+  const advancing = groupCount * advancePerGroup
+  if (advancing === 2) return 'Add final match between group winners'
+  return `Add final round-robin among the top ${advancePerGroup === 1 ? '' : advancePerGroup + ' '}from each group`
 }
 
 function ChipPicker({ label, options, value, onChange, small }) {

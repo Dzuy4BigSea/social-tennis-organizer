@@ -212,6 +212,28 @@ function migrate(state) {
     const { passes: _p, ...trest } = next.tournament
     next = { ...next, tournament: trest }
   }
+  // Each division gains a wait list (the "bubble") so coaches can
+  // park extra entrants and sub them in when someone no-shows or
+  // gets sick. Migration just attaches an empty array.
+  if ((next.divisions || []).some(d => !Array.isArray(d.waitList))) {
+    next = {
+      ...next,
+      divisions: next.divisions.map(d =>
+        Array.isArray(d.waitList) ? d : { ...d, waitList: [] }
+      ),
+    }
+  }
+  // Multi-group round-robin defaults — every existing RR / feed-in
+  // division is a single group so the addition is transparent.
+  if ((next.divisions || []).some(d => isPairBased(d) && d.groupCount == null)) {
+    next = {
+      ...next,
+      divisions: next.divisions.map(d => {
+        if (!isPairBased(d) || d.groupCount != null) return d
+        return { ...d, groupCount: 1 }
+      }),
+    }
+  }
   // Home-screen migration: if state has no anchoring room code, the
   // user can't share or recover it from another device — route them
   // to the home screen so they can either continue the draft or pick
@@ -244,6 +266,9 @@ function reducer(state, action) {
         variant,
         rating,
         entrantKind,
+        groupCount,
+        advancePerGroup,
+        finalsEnabled,
       } = action.payload || {}
       const defaults = state.tournament?.defaults || {}
       const isBracket = kind === 'singleElim' || kind === 'doubleElim'
@@ -257,10 +282,20 @@ function reducer(state, action) {
         rating: rating ?? defaults.rating ?? '',
         entrantKind: entrantKind || defaults.entrantKind || 'singles',
         locked: false,
+        // Bubble / wait list — extra entrants the pro keeps on hand
+        // for substitutions (no-shows, late additions). Lives on every
+        // division regardless of kind.
+        waitList: [],
         // Feed-in stores per-pass target scores; everything else uses
         // standard tennis scoring (sets/games/tiebreak rules).
         passes: isFeedIn ? [...DEFAULT_FEED_IN_PASSES] : undefined,
         scoring: isFeedIn ? null : { ...STANDARD_SCORING },
+        // Multi-group RR / feed-in knobs. groupCount = 1 keeps the
+        // simpler single-group shape (no groups[] metadata).
+        groupCount: isBracket ? 1 : Math.max(1, Math.min(4, groupCount || 1)),
+        advancePerGroup: isBracket ? 1 : Math.max(1, Math.min(2, advancePerGroup || 1)),
+        finalsEnabled: !!finalsEnabled,
+        finalsMatches: [],
         ...(isBracket
           ? { entrants: [], matches: [], size: 0, rounds: 0 }
           : { pairs: [], matches: [] }),
@@ -360,16 +395,35 @@ function reducer(state, action) {
         ...state,
         divisions: state.divisions.map(d => {
           if (d.id !== divisionId || d.locked) return d
-          if (d.kind === 'roundRobin') {
+          if (d.kind === 'roundRobin' || d.kind === 'feedIn') {
             if ((d.pairs || []).length < 2) return d
-            const { matches } = generateSchedule(d.pairs.length, 1)
-            return { ...d, matches, locked: true }
-          }
-          if (d.kind === 'feedIn') {
-            if ((d.pairs || []).length < 2) return d
-            const passCount = (d.passes || DEFAULT_FEED_IN_PASSES).length || 1
-            const { matches } = generateSchedule(d.pairs.length, passCount)
-            return { ...d, matches, locked: true }
+            const passCount =
+              d.kind === 'feedIn'
+                ? (d.passes || DEFAULT_FEED_IN_PASSES).length || 1
+                : 1
+            const groupCount = Math.max(1, d.groupCount || 1)
+            // Single group keeps the simpler shape (no groups[]
+            // metadata) so existing single-group tournaments don't
+            // suddenly grow a structural field they never asked for.
+            if (groupCount === 1) {
+              const { matches } = generateSchedule(d.pairs.length, passCount)
+              return {
+                ...d,
+                matches,
+                groups: undefined,
+                finalsMatches: buildFinals(d, null, [{ memberIndices: d.pairs.map((_, i) => i) }]),
+                locked: true,
+              }
+            }
+            const groups = distributePairsIntoGroups(d.pairs.length, groupCount)
+            const matches = buildGroupedMatches(d.pairs, groups, passCount)
+            return {
+              ...d,
+              matches,
+              groups,
+              finalsMatches: buildFinals(d, groups, groups),
+              locked: true,
+            }
           }
           if (d.kind === 'singleElim' || d.kind === 'doubleElim') {
             const entrants = d.entrants || []
@@ -463,6 +517,257 @@ function reducer(state, action) {
             .filter(Boolean)
             .map((e, i) => ({ ...e, seed: i + 1 }))
           return { ...d, entrants: reordered }
+        }),
+      }
+    }
+
+    // ----- Wait list (the bubble) -----
+
+    case 'ADD_WAITLIST_ENTRY': {
+      const { divisionId, p1, p2 } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          const entry = {
+            id: newId('wait'),
+            p1: p1 || '',
+            p2: p2 || '',
+          }
+          return { ...d, waitList: [...(d.waitList || []), entry] }
+        }),
+      }
+    }
+
+    case 'UPDATE_WAITLIST_ENTRY': {
+      const { divisionId, id, patch } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            waitList: (d.waitList || []).map(e =>
+              e.id === id ? { ...e, ...patch } : e
+            ),
+          }
+        }),
+      }
+    }
+
+    case 'REMOVE_WAITLIST_ENTRY': {
+      const { divisionId, id } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            waitList: (d.waitList || []).filter(e => e.id !== id),
+          }
+        }),
+      }
+    }
+
+    // ----- Substitutes -----
+    // Replace the names on a pair (RR/feed-in) or an entrant (bracket)
+    // while preserving its id so the schedule, completed matches, and
+    // standings entries continue to reference the same slot. Optional
+    // `fromWaitListId` lets the caller consume the wait-list entry that
+    // sourced the substitute in one atomic dispatch.
+
+    case 'SUBSTITUTE_PAIR': {
+      const { divisionId, pairId, p1, p2, fromWaitListId } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          const nextWait = fromWaitListId
+            ? (d.waitList || []).filter(e => e.id !== fromWaitListId)
+            : d.waitList
+          return {
+            ...d,
+            pairs: (d.pairs || []).map(p =>
+              p.id === pairId
+                ? {
+                    ...p,
+                    p1: p1 || '',
+                    p2: p2 || '',
+                    label: pairLabel(p1 || '', p2 || ''),
+                  }
+                : p
+            ),
+            waitList: nextWait,
+          }
+        }),
+      }
+    }
+
+    case 'SUBSTITUTE_ENTRANT': {
+      const { divisionId, entrantId, p1, p2, fromWaitListId } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          const nextWait = fromWaitListId
+            ? (d.waitList || []).filter(e => e.id !== fromWaitListId)
+            : d.waitList
+          return {
+            ...d,
+            entrants: (d.entrants || []).map(e =>
+              e.id === entrantId
+                ? { ...e, p1: p1 || '', p2: p2 || '' }
+                : e
+            ),
+            waitList: nextWait,
+          }
+        }),
+      }
+    }
+
+    // ----- Promote from wait list (unlocked-only) -----
+    // For divisions that aren't locked yet, dragging from the bubble
+    // onto the main list adds the entrant directly. The wait-list
+    // source is removed in the same step.
+
+    case 'PROMOTE_WAITLIST_TO_PAIR': {
+      const { divisionId, waitListId } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId || d.locked) return d
+          const entry = (d.waitList || []).find(e => e.id === waitListId)
+          if (!entry) return d
+          const pair = {
+            id: newId('pair'),
+            p1: entry.p1 || '',
+            p2: entry.p2 || '',
+            label: pairLabel(entry.p1, entry.p2),
+          }
+          return {
+            ...d,
+            pairs: [...(d.pairs || []), pair],
+            waitList: (d.waitList || []).filter(e => e.id !== waitListId),
+          }
+        }),
+      }
+    }
+
+    // ----- Multi-group helpers -----
+
+    case 'MOVE_PAIR_TO_GROUP': {
+      // Move a single pair (by 0-based index in division.pairs) from
+      // its current group to `targetGroupIndex`. Only valid on a
+      // locked multi-group division. The group's matches re-generate
+      // because the pair set changed; existing scores within the
+      // moved pair's old group are kept but its own matches reset.
+      const { divisionId, pairIndex, targetGroupIndex } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (
+            d.id !== divisionId ||
+            !d.locked ||
+            !Array.isArray(d.groups) ||
+            d.groups.length < 2
+          )
+            return d
+          const fromIdx = d.groups.findIndex(g =>
+            g.memberIndices.includes(pairIndex)
+          )
+          if (fromIdx < 0 || fromIdx === targetGroupIndex) return d
+          const groups = d.groups.map((g, i) => {
+            if (i === fromIdx) {
+              return {
+                ...g,
+                memberIndices: g.memberIndices.filter(x => x !== pairIndex),
+              }
+            }
+            if (i === targetGroupIndex) {
+              return {
+                ...g,
+                memberIndices: [...g.memberIndices, pairIndex],
+              }
+            }
+            return g
+          })
+          // Regenerate matches for the two affected groups (and
+          // others stay the same). Easiest path: regenerate ALL
+          // group matches since the schedule generator is cheap.
+          const passCount =
+            d.kind === 'feedIn'
+              ? (d.passes || DEFAULT_FEED_IN_PASSES).length || 1
+              : 1
+          const matches = buildGroupedMatches(d.pairs, groups, passCount)
+          // Finals refresh too — placeholders may shift if groups
+          // reshape (e.g. an empty group). Resolution happens at
+          // display time so this is safe to rebuild eagerly.
+          const finalsMatches = buildFinals(
+            { ...d, finalsEnabled: d.finalsEnabled },
+            groups,
+            groups
+          )
+          return { ...d, groups, matches, finalsMatches }
+        }),
+      }
+    }
+
+    case 'RECORD_FINALS_SCORE': {
+      const { divisionId, matchId, scoreA, scoreB } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            finalsMatches: (d.finalsMatches || []).map(m =>
+              m.id === matchId
+                ? { ...m, scoreA, scoreB, completed: true }
+                : m
+            ),
+          }
+        }),
+      }
+    }
+
+    case 'CLEAR_FINALS_SCORE': {
+      const { divisionId, matchId } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId) return d
+          return {
+            ...d,
+            finalsMatches: (d.finalsMatches || []).map(m =>
+              m.id === matchId
+                ? { ...m, scoreA: null, scoreB: null, completed: false }
+                : m
+            ),
+          }
+        }),
+      }
+    }
+
+    case 'PROMOTE_WAITLIST_TO_ENTRANT': {
+      const { divisionId, waitListId } = action.payload
+      return {
+        ...state,
+        divisions: state.divisions.map(d => {
+          if (d.id !== divisionId || d.locked) return d
+          const entry = (d.waitList || []).find(e => e.id === waitListId)
+          if (!entry) return d
+          const entrant = {
+            id: newId('ent'),
+            p1: entry.p1 || '',
+            p2: entry.p2 || '',
+            isBye: false,
+            seed: (d.entrants?.length || 0) + 1,
+          }
+          return {
+            ...d,
+            entrants: [...(d.entrants || []), entrant],
+            waitList: (d.waitList || []).filter(e => e.id !== waitListId),
+          }
         }),
       }
     }
@@ -667,6 +972,147 @@ export const DEFAULT_FEED_IN_PASSES = [
   { winningScore: 7 },
   { winningScore: 7 },
 ]
+
+/**
+ * True when the given division uses pairs[] (round-robin / feed-in)
+ * rather than entrants[] (bracket draws). Several reducer cases and
+ * the migrator branch on this — pulled out so the predicate stays
+ * consistent.
+ */
+function isPairBased(d) {
+  return d && (d.kind === 'roundRobin' || d.kind === 'feedIn')
+}
+
+/**
+ * Snake-draft distribution: stronger pairs (lower index) and weaker
+ * pairs balance across groups. With 8 pairs into 2 groups you get
+ * Group A = {1,4,5,8}, Group B = {2,3,6,7}. Pros can drag pairs
+ * between groups after lock to override the default — see
+ * MOVE_PAIR_TO_GROUP for the manual reassignment path.
+ *
+ * Returns groups as `{ id, name, index, memberIndices }` where
+ * memberIndices are 0-based positions into division.pairs[]. The
+ * label uses A/B/C/D since most clubs talk about groups by letter.
+ */
+function distributePairsIntoGroups(pairCount, groupCount) {
+  const groups = Array.from({ length: groupCount }, (_, i) => ({
+    id: `grp-${i}-${Math.random().toString(36).slice(2, 6)}`,
+    name: `Group ${String.fromCharCode(65 + i)}`,
+    index: i,
+    memberIndices: [],
+  }))
+  for (let i = 0; i < pairCount; i++) {
+    const round = Math.floor(i / groupCount)
+    const position = i % groupCount
+    const groupIdx = round % 2 === 0 ? position : (groupCount - 1 - position)
+    groups[groupIdx].memberIndices.push(i)
+  }
+  return groups
+}
+
+/**
+ * Build the per-group match list at lock time. Each group's matches
+ * are generated locally (indices 1..groupSize) and then remapped to
+ * the division-wide 1-based pair index so a single flat matches[]
+ * array can hold every match. Each match carries a `groupIndex` tag
+ * so the live board / standings code can filter back out.
+ */
+/**
+ * Build the finals stage matches when the pro has opted in. Three
+ * realities:
+ *
+ *   - division.finalsEnabled === false → no finals.
+ *   - One group, finals on → 1st vs 2nd of the group plays a final
+ *     match. Common at clubs that want a true champion match.
+ *   - Multiple groups → top N from each group advance, where
+ *     `advancePerGroup` is 1 by default. If only two pairs advance
+ *     in total, they play a single final match. Three or more
+ *     advance → another round-robin among them (the "final RR").
+ *
+ * Match participants are stored as placeholder slots referencing
+ * group standings (`{ kind: 'placeholder', groupIndex, place }`).
+ * Once a group's matches all complete, helpers in utils/groups.js
+ * resolve placeholders to actual pair indices for display.
+ */
+function buildFinals(division, groups, _allGroups) {
+  if (!division.finalsEnabled) return []
+  const groupCount = groups ? groups.length : 1
+  const advancePerGroup = Math.max(1, Math.min(2, division.advancePerGroup || 1))
+  const advancing = []
+  if (!groups) {
+    // Single group: top advancePerGroup of that one group. Default 2
+    // so a single-group event with finals enabled gets 1st vs 2nd.
+    const single = Math.max(2, advancePerGroup === 1 ? 2 : advancePerGroup)
+    for (let p = 1; p <= single; p++) {
+      advancing.push({ kind: 'placeholder', groupIndex: 0, place: p })
+    }
+  } else {
+    for (let g = 0; g < groupCount; g++) {
+      for (let p = 1; p <= advancePerGroup; p++) {
+        advancing.push({ kind: 'placeholder', groupIndex: g, place: p })
+      }
+    }
+  }
+  if (advancing.length < 2) return []
+  // Two advancing → one final match.
+  // Three or more → mini round-robin.
+  if (advancing.length === 2) {
+    return [
+      {
+        id: 'final-m1',
+        stage: 'finals',
+        round: 1,
+        slot: 1,
+        finalsFormat: 'match',
+        slotA: advancing[0],
+        slotB: advancing[1],
+        scoreA: null,
+        scoreB: null,
+        completed: false,
+      },
+    ]
+  }
+  const out = []
+  let matchNo = 1
+  for (let i = 0; i < advancing.length; i++) {
+    for (let j = i + 1; j < advancing.length; j++) {
+      out.push({
+        id: `final-m${matchNo}`,
+        stage: 'finals',
+        round: 1,
+        slot: matchNo,
+        finalsFormat: 'roundRobin',
+        slotA: advancing[i],
+        slotB: advancing[j],
+        scoreA: null,
+        scoreB: null,
+        completed: false,
+      })
+      matchNo++
+    }
+  }
+  return out
+}
+
+function buildGroupedMatches(pairs, groups, passCount) {
+  const matches = []
+  groups.forEach(g => {
+    if (g.memberIndices.length < 2) return
+    const { matches: local } = generateSchedule(g.memberIndices.length, passCount)
+    local.forEach(m => {
+      matches.push({
+        ...m,
+        id: `g${g.index}-${m.id}`,
+        groupIndex: g.index,
+        stage: 'group',
+        pairA: g.memberIndices[m.pairA - 1] + 1,
+        pairB: g.memberIndices[m.pairB - 1] + 1,
+        bye: m.bye ? g.memberIndices[m.bye - 1] + 1 : null,
+      })
+    })
+  })
+  return matches
+}
 
 /**
  * Build a default name for a freshly-added division when the pro

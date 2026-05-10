@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import ScoringEditor from './ScoringEditor.jsx'
+import WaitListPanel from './WaitListPanel.jsx'
+import SubstituteDialog from './SubstituteDialog.jsx'
 import {
   DndContext,
   PointerSensor,
@@ -32,6 +34,7 @@ import { restrictToVerticalAxis, restrictToParentElement } from '@dnd-kit/modifi
 export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) {
   const isDoubles = bracket.entrantKind === 'doubles'
   const isDoubleElim = bracket.kind === 'doubleElim'
+  const [substituteFor, setSubstituteFor] = useState(null)
   const entrants = bracket.entrants || []
   const drawSize = bracket.size || 0
   const [p1, setP1] = useState('')
@@ -214,6 +217,7 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
                     })
                   )
                 }
+                onSubstitute={() => setSubstituteFor(e)}
               />
             ))}
           </ol>
@@ -278,11 +282,53 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
           )
         }
       />
+
+      <WaitListPanel
+        divisionId={bracket.id}
+        waitList={bracket.waitList || []}
+        isDoubles={isDoubles}
+        locked={locked}
+        dispatch={dispatch}
+        ifAuthed={ifAuthed}
+        promoteAction="PROMOTE_WAITLIST_TO_ENTRANT"
+      />
+
+      {substituteFor && (
+        <SubstituteDialog
+          title={entrantSummary(substituteFor, isDoubles)}
+          isDoubles={isDoubles}
+          current={entrantSummary(substituteFor, isDoubles)}
+          waitList={bracket.waitList || []}
+          onClose={() => setSubstituteFor(null)}
+          onSubmit={({ p1, p2, fromWaitListId }) => {
+            ifAuthed(() =>
+              dispatch({
+                type: 'SUBSTITUTE_ENTRANT',
+                payload: {
+                  divisionId: bracket.id,
+                  entrantId: substituteFor.id,
+                  p1,
+                  p2,
+                  fromWaitListId,
+                },
+              })
+            )
+            setSubstituteFor(null)
+          }}
+        />
+      )}
     </section>
   )
 }
 
-function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemove }) {
+function entrantSummary(entrant, isDoubles) {
+  const a = (entrant.p1 || '').trim()
+  const b = (entrant.p2 || '').trim()
+  if (isDoubles && a && b) return `${a} / ${b}`
+  return a || b || '—'
+}
+
+function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemove, onSubstitute }) {
   const {
     attributes,
     listeners,
@@ -355,6 +401,15 @@ function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemo
             </>
           )}
         </div>
+      )}
+      {locked && !entrant.isBye && onSubstitute && (
+        <button
+          onClick={onSubstitute}
+          className="shrink-0 text-xs px-2 py-1 rounded-lg border border-vinoy-gold/60 text-vinoy-gold hover:bg-vinoy-gold hover:text-white transition"
+          title="Sub a player in for this seed"
+        >
+          Sub
+        </button>
       )}
       {!locked && (
         <button

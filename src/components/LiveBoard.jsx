@@ -8,6 +8,7 @@ import OrnamentalRule from './OrnamentalRule.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
 import { getStoredPin } from '../utils/share.js'
 import { formatMatchTime } from '../utils/format.js'
+import { resolveFinalsSlot, placeholderLabel } from '../utils/groups.js'
 
 export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions } = state
@@ -191,18 +192,111 @@ function winningScoreFor(passes, match) {
 }
 
 function DivisionPanel({ division, passes, dispatch, ifAuthed, proAuthed }) {
-  const queue = useMemo(() => upcomingMatches(division.matches, 3), [division.matches])
+  // Multi-group RR / feed-in: render one panel per group, plus a
+  // finals panel underneath if the pro has enabled finals. Single-
+  // group divisions get the simpler unscoped panel.
+  if (Array.isArray(division.groups) && division.groups.length > 1) {
+    return (
+      <div className="space-y-5">
+        {division.groups.map(g => (
+          <GroupSection
+            key={g.id}
+            division={division}
+            group={g}
+            passes={passes}
+            dispatch={dispatch}
+            ifAuthed={ifAuthed}
+            proAuthed={proAuthed}
+          />
+        ))}
+        {(division.finalsMatches?.length || 0) > 0 && (
+          <FinalsPanel
+            division={division}
+            passes={passes}
+            dispatch={dispatch}
+            ifAuthed={ifAuthed}
+            proAuthed={proAuthed}
+          />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      <DivisionPlayBlock
+        division={division}
+        scopedMatches={division.matches}
+        passes={passes}
+        dispatch={dispatch}
+        ifAuthed={ifAuthed}
+        proAuthed={proAuthed}
+      />
+      <StandingsGrid division={division} passes={passes} />
+      {(division.finalsMatches?.length || 0) > 0 && (
+        <FinalsPanel
+          division={division}
+          passes={passes}
+          dispatch={dispatch}
+          ifAuthed={ifAuthed}
+          proAuthed={proAuthed}
+        />
+      )}
+    </div>
+  )
+}
+
+function GroupSection({ division, group, passes, dispatch, ifAuthed, proAuthed }) {
+  const groupMatches = useMemo(
+    () => (division.matches || []).filter(m => m.groupIndex === group.index),
+    [division.matches, group.index]
+  )
+  return (
+    <section className="space-y-3">
+      <header className="flex items-baseline gap-2 flex-wrap">
+        <h2 className="font-display text-lg font-bold text-vinoy-green">
+          {group.name}
+        </h2>
+        <span className="text-xs text-vinoy-ink/60">
+          {group.memberIndices.length} pairs · {groupMatches.length} matches
+        </span>
+      </header>
+      <DivisionPlayBlock
+        division={division}
+        scopedMatches={groupMatches}
+        passes={passes}
+        dispatch={dispatch}
+        ifAuthed={ifAuthed}
+        proAuthed={proAuthed}
+      />
+      <StandingsGrid
+        division={division}
+        passes={passes}
+        groupIndex={group.index}
+      />
+    </section>
+  )
+}
+
+/**
+ * Now-playing / on-deck / in-the-hole cards plus the completed
+ * summary for a slice of the division's matches. Pulled out of
+ * DivisionPanel so single-group and per-group rendering share the
+ * same play block.
+ */
+function DivisionPlayBlock({ division, scopedMatches, passes, dispatch, ifAuthed, proAuthed }) {
+  const queue = useMemo(() => upcomingMatches(scopedMatches, 3), [scopedMatches])
   const [now, next, after] = queue
-  const allDone = division.matches.length > 0 && queue.length === 0
-  const [editing, setEditing] = useState(null) // a completed match being re-edited
+  const allDone = scopedMatches.length > 0 && queue.length === 0
+  const [editing, setEditing] = useState(null)
 
   return (
     <div className="space-y-3">
       {allDone ? (
         <div className="bg-tennis-green text-white rounded-2xl p-6 text-center">
-          <h2 className="text-2xl font-bold">Division complete!</h2>
+          <h2 className="text-2xl font-bold">Group complete!</h2>
           <p className="text-white/80 text-sm mt-1">
-            All matches scored. Final standings below.
+            All matches scored. Standings below.
           </p>
         </div>
       ) : (
@@ -225,11 +319,10 @@ function DivisionPanel({ division, passes, dispatch, ifAuthed, proAuthed }) {
 
       <CompletedSummary
         division={division}
+        scopedMatches={scopedMatches}
         proAuthed={proAuthed}
         onEdit={(m) => ifAuthed(() => setEditing(m))}
       />
-
-      <StandingsGrid division={division} passes={passes} />
 
       {editing && (
         <ScoreEditModal
@@ -471,9 +564,187 @@ function UpcomingCard({ label, match, division, passes }) {
   )
 }
 
-function CompletedSummary({ division, proAuthed, onEdit }) {
+/**
+ * Finals stage for a multi-group division (or a single-group event
+ * with the optional 1st-vs-2nd match enabled). Each finals match
+ * stores `slotA` / `slotB` as placeholder references to a group's
+ * standings position; we resolve those to real pairs once the
+ * source group has all its matches completed.
+ */
+function FinalsPanel({ division, passes, dispatch, ifAuthed, proAuthed }) {
+  const matches = division.finalsMatches || []
+  const [editing, setEditing] = useState(null)
+  if (matches.length === 0) return null
+  const finalsFormat = matches[0].finalsFormat || 'match'
+  const heading = finalsFormat === 'roundRobin' ? 'Finals — round-robin' : 'Finals'
+
+  return (
+    <section className="space-y-3">
+      <header className="flex items-baseline gap-2 flex-wrap">
+        <h2 className="font-display text-lg font-bold text-vinoy-gold">{heading}</h2>
+        <span className="text-xs text-vinoy-ink/60">
+          {matches.filter(m => m.completed).length}/{matches.length} matches
+        </span>
+      </header>
+      <div className="space-y-2">
+        {matches.map(m => (
+          <FinalsMatchRow
+            key={m.id}
+            division={division}
+            match={m}
+            proAuthed={proAuthed}
+            onClick={() => proAuthed && ifAuthed(() => setEditing(m))}
+          />
+        ))}
+      </div>
+
+      {editing && (
+        <FinalsScoreModal
+          division={division}
+          match={division.finalsMatches.find(m => m.id === editing.id) || editing}
+          dispatch={dispatch}
+          onClose={() => setEditing(null)}
+        />
+      )}
+    </section>
+  )
+}
+
+function FinalsMatchRow({ division, match, proAuthed, onClick }) {
+  const a = resolveFinalsSlot(division, match.slotA)
+  const b = resolveFinalsSlot(division, match.slotB)
+  const labelA = a ? a.label : placeholderLabel(match.slotA)
+  const labelB = b ? b.label : placeholderLabel(match.slotB)
+  const ready = !!(a && b)
+  const completed = match.completed
+  const clickable = proAuthed && (ready || completed)
+  return (
+    <button
+      type="button"
+      onClick={clickable ? onClick : undefined}
+      disabled={!clickable}
+      className={`w-full text-left rounded-2xl border-2 transition px-4 py-3 flex items-center gap-3 ${
+        completed
+          ? 'border-vinoy-green bg-vinoy-cream'
+          : ready
+            ? 'border-vinoy-gold bg-white hover:bg-vinoy-cream'
+            : 'border-vinoy-border bg-white opacity-60 cursor-not-allowed'
+      }`}
+    >
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold">{labelA}</div>
+        <div className="text-vinoy-ink/40 text-xs my-0.5">vs</div>
+        <div className="text-sm font-semibold">{labelB}</div>
+      </div>
+      <div className="text-right shrink-0">
+        {completed ? (
+          <div className="font-mono text-xl">
+            {match.scoreA} – {match.scoreB}
+          </div>
+        ) : ready ? (
+          <span className="text-xs uppercase tracking-wider text-vinoy-gold font-semibold">
+            Ready
+          </span>
+        ) : (
+          <span className="text-xs text-vinoy-ink/50">
+            Waiting on group play
+          </span>
+        )}
+      </div>
+    </button>
+  )
+}
+
+function FinalsScoreModal({ division, match, dispatch, onClose }) {
+  const a = resolveFinalsSlot(division, match.slotA)
+  const b = resolveFinalsSlot(division, match.slotB)
+  const [scoreA, setScoreA] = useState(match.scoreA ?? '')
+  const [scoreB, setScoreB] = useState(match.scoreB ?? '')
+
+  function save(e) {
+    e?.preventDefault?.()
+    const sa = parseInt(scoreA)
+    const sb = parseInt(scoreB)
+    if (!Number.isFinite(sa) || !Number.isFinite(sb)) return
+    dispatch({
+      type: 'RECORD_FINALS_SCORE',
+      payload: { divisionId: division.id, matchId: match.id, scoreA: sa, scoreB: sb },
+    })
+    onClose?.()
+  }
+  function clear() {
+    if (!confirm('Clear this finals score?')) return
+    dispatch({
+      type: 'CLEAR_FINALS_SCORE',
+      payload: { divisionId: division.id, matchId: match.id },
+    })
+    onClose?.()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white w-full sm:max-w-md sm:rounded-2xl shadow-xl p-5 space-y-3"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-display text-xl font-bold text-vinoy-green">
+          Finals score
+        </h3>
+        <form onSubmit={save} className="space-y-3">
+          <div className="grid grid-cols-2 gap-2 items-end">
+            <label className="block">
+              <span className="text-xs font-semibold text-vinoy-ink/70">
+                {a ? a.label : placeholderLabel(match.slotA)}
+              </span>
+              <input
+                type="number"
+                value={scoreA}
+                onChange={(e) => setScoreA(e.target.value)}
+                className="mt-1 w-full text-center text-2xl font-bold border-2 border-vinoy-border rounded-xl px-3 py-2 focus:border-vinoy-green focus:outline-none"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-semibold text-vinoy-ink/70">
+                {b ? b.label : placeholderLabel(match.slotB)}
+              </span>
+              <input
+                type="number"
+                value={scoreB}
+                onChange={(e) => setScoreB(e.target.value)}
+                className="mt-1 w-full text-center text-2xl font-bold border-2 border-vinoy-border rounded-xl px-3 py-2 focus:border-vinoy-green focus:outline-none"
+              />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            {match.completed && (
+              <button
+                type="button"
+                onClick={clear}
+                className="px-4 py-2 rounded-xl border border-red-300 text-red-700 text-sm font-semibold"
+              >
+                Clear
+              </button>
+            )}
+            <button
+              type="submit"
+              className="flex-1 px-4 py-2 rounded-xl bg-vinoy-green text-white font-semibold"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+function CompletedSummary({ division, scopedMatches, proAuthed, onEdit }) {
   const [open, setOpen] = useState(false)
-  const completed = division.matches.filter(m => m.completed)
+  const source = scopedMatches || division.matches
+  const completed = source.filter(m => m.completed)
   if (completed.length === 0) return null
 
   return (

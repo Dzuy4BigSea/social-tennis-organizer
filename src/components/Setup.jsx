@@ -4,7 +4,8 @@ import PinGate, { PinSetup } from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import SetupBracket from './SetupBracket.jsx'
-import SchedulePanel from './SchedulePanel.jsx'
+import CourtsEditor from './CourtsEditor.jsx'
+import ScheduleGrid from './ScheduleGrid.jsx'
 import OrnamentalRule from './OrnamentalRule.jsx'
 import AddDivisionDialog from './AddDivisionDialog.jsx'
 import ScoringEditor from './ScoringEditor.jsx'
@@ -19,6 +20,9 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
   const [showPinSetup, setShowPinSetup] = useState(false)
   const [showPinGate, setShowPinGate] = useState(false)
   const [showAddDivision, setShowAddDivision] = useState(false)
+  // Top-level view tab — keep both surfaces in this same component
+  // so the EventDetailsCard / nav / pro-auth flow stays shared.
+  const [view, setView] = useState('setup') // 'setup' | 'schedule'
 
   const proAuthed = !tournament.pinHash || Boolean(getStoredPin())
   const anyLocked = (divisions || []).some(d => d.locked)
@@ -65,7 +69,9 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         dispatch={dispatch}
       />
 
-      {!tournament.pinHash && (
+      <ViewTabs view={view} onChange={setView} hasLocked={anyLocked} />
+
+      {!tournament.pinHash && view === 'setup' && (
         <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-4 mb-4 text-sm">
           <p className="text-yellow-900">
             <strong>No PIN set.</strong> Anyone with the event code can edit scores. Set a PIN so only the pros can score.
@@ -79,52 +85,64 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         </div>
       )}
 
-      <section className="mb-2">
-        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-          <h2 className="font-display text-xl font-bold text-vinoy-green">Divisions</h2>
-          <button
-            onClick={() => setShowAddDivision(true)}
-            className="px-3 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm"
-          >
-            + Add division
-          </button>
-        </div>
-
-        {divisions.length === 0 ? (
-          <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60 mb-4">
-            No divisions yet. Add one to start (e.g.{' '}
-            <em>Men's 4.0 Single Elim</em> or <em>Mixed 3.5 Round Robin</em>).
+      {view === 'setup' && (
+        <section className="mb-2">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <h2 className="font-display text-xl font-bold text-vinoy-green">Divisions</h2>
+            <button
+              onClick={() => setShowAddDivision(true)}
+              className="px-3 py-2 rounded-xl bg-vinoy-green text-white font-semibold text-sm"
+            >
+              + Add division
+            </button>
           </div>
-        ) : (
-          <div className="space-y-3 mb-4">
-            {divisions.map(d =>
-              d.kind === 'roundRobin' || d.kind === 'feedIn' ? (
-                <PairBasedDivisionCard
-                  key={d.id}
-                  division={d}
-                  dispatch={dispatch}
-                  ifAuthed={ifAuthed}
-                />
-              ) : (
-                <SetupBracket
-                  key={d.id}
-                  bracket={d}
-                  dispatch={dispatch}
-                  ifAuthed={ifAuthed}
-                  onRemove={() =>
-                    ifAuthed(() => {
-                      if (confirm(`Remove division "${d.name || 'unnamed'}"?`))
-                        dispatch({ type: 'REMOVE_DIVISION', payload: d.id })
-                    })
-                  }
-                />
-              )
-            )}
-          </div>
-        )}
-      </section>
 
-      <SchedulePanel state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
+          {divisions.length === 0 ? (
+            <div className="bg-white border-2 border-dashed border-vinoy-border rounded-2xl p-8 text-center text-vinoy-ink/60 mb-4">
+              No divisions yet. Add one to start (e.g.{' '}
+              <em>Men's 4.0 Single Elim</em> or <em>Mixed 3.5 Round Robin</em>).
+            </div>
+          ) : (
+            <div className="space-y-3 mb-4">
+              {divisions.map(d =>
+                d.kind === 'roundRobin' || d.kind === 'feedIn' ? (
+                  <PairBasedDivisionCard
+                    key={d.id}
+                    division={d}
+                    dispatch={dispatch}
+                    ifAuthed={ifAuthed}
+                  />
+                ) : (
+                  <SetupBracket
+                    key={d.id}
+                    bracket={d}
+                    dispatch={dispatch}
+                    ifAuthed={ifAuthed}
+                    onRemove={() =>
+                      ifAuthed(() => {
+                        if (confirm(`Remove division "${d.name || 'unnamed'}"?`))
+                          dispatch({ type: 'REMOVE_DIVISION', payload: d.id })
+                      })
+                    }
+                  />
+                )
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      {view === 'setup' && (
+        <CourtsEditor
+          tournament={tournament}
+          dispatch={dispatch}
+          ifAuthed={ifAuthed}
+        />
+      )}
+
+      {view === 'schedule' && (
+        <ScheduleGrid state={state} dispatch={dispatch} ifAuthed={ifAuthed} />
+      )}
 
       {anyLocked && (
         <div className="sticky bottom-4 mt-6 z-30">
@@ -164,6 +182,58 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
  * they've moved into the per-division dialog so a single event can
  * hold draws with different formats.
  */
+/**
+ * Tab strip switching between the structural Setup view (divisions,
+ * courts) and the live Schedule view (court × time grid). The
+ * Schedule tab grays out until at least one division is locked —
+ * scheduling matches that don't exist yet has no meaning.
+ */
+function ViewTabs({ view, onChange, hasLocked }) {
+  return (
+    <div className="flex justify-center mb-4">
+      <div
+        role="tablist"
+        className="inline-flex bg-white border border-vinoy-border rounded-xl overflow-hidden shadow-sm"
+      >
+        <TabButton
+          active={view === 'setup'}
+          onClick={() => onChange('setup')}
+          label="Setup"
+        />
+        <TabButton
+          active={view === 'schedule'}
+          onClick={() => hasLocked && onChange('schedule')}
+          disabled={!hasLocked}
+          label="Schedule"
+          hint={!hasLocked ? 'Lock a division first' : undefined}
+        />
+      </div>
+    </div>
+  )
+}
+
+function TabButton({ active, onClick, disabled, label, hint }) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      disabled={disabled}
+      title={hint}
+      className={[
+        'px-5 py-2 text-sm font-semibold transition',
+        active
+          ? 'bg-vinoy-green text-white'
+          : disabled
+            ? 'bg-white text-vinoy-ink/30 cursor-not-allowed'
+            : 'bg-white text-vinoy-ink/70 hover:bg-vinoy-cream',
+      ].join(' ')}
+    >
+      {label}
+    </button>
+  )
+}
+
 function EventDetailsCard({ tournament, ifAuthed, dispatch }) {
   function set(patch) {
     ifAuthed(() => dispatch({ type: 'SET_TOURNAMENT', payload: patch }))

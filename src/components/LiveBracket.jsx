@@ -13,7 +13,7 @@ import { formatMatchTime } from '../utils/format.js'
  *      (in pro mode) re-opens the score editor; tapping a pending
  *      match where both sides are known opens the same entry UI.
  */
-export default function LiveBracket({ bracket, dispatch, ifAuthed, proAuthed }) {
+export default function LiveBracket({ bracket, tournament, dispatch, ifAuthed, proAuthed }) {
   const [editing, setEditing] = useState(null)
 
   const enriched = useMemo(() => enrichMatches(bracket), [bracket])
@@ -78,6 +78,7 @@ export default function LiveBracket({ bracket, dispatch, ifAuthed, proAuthed }) 
         <BracketScoreModal
           match={enriched.find(m => m.id === editing.id) || editing}
           division={bracket}
+          tournament={tournament}
           dispatch={dispatch}
           ifAuthed={ifAuthed}
           onClose={() => setEditing(null)}
@@ -429,11 +430,18 @@ function Side({ side, score, winner }) {
   )
 }
 
-function BracketScoreModal({ match, division, dispatch, ifAuthed, onClose }) {
+function BracketScoreModal({ match, division, tournament, dispatch, ifAuthed, onClose }) {
   const scoring = division.scoring || {}
   const setsToWin = clampSets(scoring.setsToWin ?? 2)
   const totalPossibleSets = setsToWin * 2 - 1
   const gamesPerSet = scoring.gamesPerSet ?? 6
+  const courts = tournament?.courts || []
+
+  // Inline scheduling — pros want to set time + court while
+  // they're already on a match. Persists via SET_MATCH_SCHEDULE
+  // independent of the score save path.
+  const [scheduledAt, setScheduledAt] = useState(match.scheduledAt || '')
+  const [court, setCourt] = useState(match.court || '')
 
   // Pre-fill from match.setsA/setsB if recorded that way; otherwise
   // if we only have aggregate scoreA/scoreB (legacy), pad sets to
@@ -484,13 +492,32 @@ function BracketScoreModal({ match, division, dispatch, ifAuthed, onClose }) {
       persistName(entrantA, nameAp1, nameAp2)
       persistName(entrantB, nameBp1, nameBp2)
 
+      // Persist schedule changes independently of score — the pro
+      // can open this modal just to set time/court for a future
+      // match without entering any sets.
+      const scheduleChanged =
+        scheduledAt !== (match.scheduledAt || '') ||
+        court !== (match.court || '')
+      if (scheduleChanged) {
+        dispatch({
+          type: 'SET_MATCH_SCHEDULE',
+          payload: {
+            divisionId: division.id,
+            matchId: match.id,
+            scheduledAt: scheduledAt || null,
+            court: court || null,
+          },
+        })
+      }
+
       // Strip trailing empty pairs and only persist sets that have
       // both numbers filled in. Best-of-3 matches usually only need
       // 2 or 3 sets played; we don't want to record empty 4th/5th.
       const trimmed = trimEmptyTrailingSets(setsA, setsB)
       if (trimmed.setsA.length === 0) {
-        // No sets at all → caller probably opened to edit names only.
-        // If neither side has any score input, just close.
+        // No sets at all → caller probably opened to edit names or
+        // schedule only. If neither side has any score input, just
+        // close (any name / schedule changes were already saved).
         onClose?.()
         return
       }
@@ -583,6 +610,36 @@ function BracketScoreModal({ match, division, dispatch, ifAuthed, onClose }) {
             highlight="B"
             gamesPerSet={gamesPerSet}
           />
+
+          <div className="border-t border-vinoy-border pt-3">
+            <div className="text-xs font-semibold text-vinoy-ink/70 mb-2">
+              Schedule
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="block">
+                <span className="text-[11px] text-vinoy-ink/60">Time</span>
+                <input
+                  type="datetime-local"
+                  value={scheduledAt}
+                  onChange={(e) => setScheduledAt(e.target.value)}
+                  className="mt-0.5 w-full border border-vinoy-border rounded-lg px-2 py-1 text-sm focus:border-vinoy-green focus:outline-none"
+                />
+              </label>
+              <label className="block">
+                <span className="text-[11px] text-vinoy-ink/60">Court</span>
+                <select
+                  value={court}
+                  onChange={(e) => setCourt(e.target.value)}
+                  className="mt-0.5 w-full border border-vinoy-border rounded-lg px-2 py-1 text-sm bg-white focus:border-vinoy-green focus:outline-none"
+                >
+                  <option value="">Unassigned</option>
+                  {courts.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          </div>
 
           {(entrantA || entrantB) && (
             <div className="border-t border-vinoy-border pt-3">

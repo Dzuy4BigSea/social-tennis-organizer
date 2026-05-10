@@ -116,6 +116,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
           ) : (
             <LiveBracket
               bracket={active.draw}
+              tournament={state.tournament}
               dispatch={dispatch}
               ifAuthed={ifAuthed}
               proAuthed={proAuthed}

@@ -542,6 +542,38 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true, onSubstitute
     })
   }
 
+  // Inline name edit needs to route through different actions
+  // depending on whether the division is locked. UPDATE_PAIR is
+  // the unrestricted edit (also handles label rebuild) but is a
+  // no-op when locked. SUBSTITUTE_PAIR preserves the pair id and
+  // is the only action that's allowed to mutate names post-lock,
+  // so the schedule, completed scores, and standings keep
+  // pointing at the same record.
+  function editPairName(pair, side, value) {
+    ifAuthed(() => {
+      if (locked) {
+        dispatch({
+          type: 'SUBSTITUTE_PAIR',
+          payload: {
+            divisionId: division.id,
+            pairId: pair.id,
+            p1: side === 'p1' ? value : pair.p1 || '',
+            p2: side === 'p2' ? value : pair.p2 || '',
+          },
+        })
+      } else {
+        dispatch({
+          type: 'UPDATE_PAIR',
+          payload: {
+            divisionId: division.id,
+            pairId: pair.id,
+            patch: { [side]: value },
+          },
+        })
+      }
+    })
+  }
+
   return (
     <div>
       <ol className="space-y-2 mb-3">
@@ -557,20 +589,8 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true, onSubstitute
               <input
                 type="text"
                 value={pair.p1}
-                onChange={(e) =>
-                  ifAuthed(() =>
-                    dispatch({
-                      type: 'UPDATE_PAIR',
-                      payload: {
-                        divisionId: division.id,
-                        pairId: pair.id,
-                        patch: { p1: e.target.value },
-                      },
-                    })
-                  )
-                }
+                onChange={(e) => editPairName(pair, 'p1', e.target.value)}
                 placeholder={isDoubles ? 'Player 1' : 'Player'}
-                disabled={locked}
                 className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
               />
               {isDoubles && (
@@ -579,20 +599,8 @@ function PairList({ division, dispatch, ifAuthed, isDoubles = true, onSubstitute
                   <input
                     type="text"
                     value={pair.p2}
-                    onChange={(e) =>
-                      ifAuthed(() =>
-                        dispatch({
-                          type: 'UPDATE_PAIR',
-                          payload: {
-                            divisionId: division.id,
-                            pairId: pair.id,
-                            patch: { p2: e.target.value },
-                          },
-                        })
-                      )
-                    }
+                    onChange={(e) => editPairName(pair, 'p2', e.target.value)}
                     placeholder="Player 2"
-                    disabled={locked}
                     className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
                   />
                 </>

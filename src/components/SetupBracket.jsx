@@ -35,6 +35,31 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
   const isDoubles = bracket.entrantKind === 'doubles'
   const isDoubleElim = bracket.kind === 'doubleElim'
   const [substituteFor, setSubstituteFor] = useState(null)
+
+  // Inline name edit routes through UPDATE_ENTRANT before lock and
+  // SUBSTITUTE_ENTRANT after, so entries stay editable everywhere
+  // and post-lock changes preserve the entrant id (and therefore
+  // every match that references it).
+  function editEntrantName(entrant, side, value) {
+    ifAuthed(() => {
+      if (locked) {
+        dispatch({
+          type: 'SUBSTITUTE_ENTRANT',
+          payload: {
+            divisionId: bracket.id,
+            entrantId: entrant.id,
+            p1: side === 'p1' ? value : entrant.p1 || '',
+            p2: side === 'p2' ? value : entrant.p2 || '',
+          },
+        })
+      } else {
+        dispatch({
+          type: 'UPDATE_ENTRANT',
+          payload: { divisionId: bracket.id, id: entrant.id, patch: { [side]: value } },
+        })
+      }
+    })
+  }
   const entrants = bracket.entrants || []
   const drawSize = bracket.size || 0
   const [p1, setP1] = useState('')
@@ -193,22 +218,8 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
                 entrant={e}
                 locked={locked}
                 isDoubles={isDoubles}
-                onChangeP1={(val) =>
-                  ifAuthed(() =>
-                    dispatch({
-                      type: 'UPDATE_ENTRANT',
-                      payload: { divisionId: bracket.id, id: e.id, patch: { p1: val } },
-                    })
-                  )
-                }
-                onChangeP2={(val) =>
-                  ifAuthed(() =>
-                    dispatch({
-                      type: 'UPDATE_ENTRANT',
-                      payload: { divisionId: bracket.id, id: e.id, patch: { p2: val } },
-                    })
-                  )
-                }
+                onChangeP1={(val) => editEntrantName(e, 'p1', val)}
+                onChangeP2={(val) => editEntrantName(e, 'p2', val)}
                 onRemove={() =>
                   ifAuthed(() =>
                     dispatch({
@@ -382,7 +393,6 @@ function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemo
           <input
             type="text"
             value={entrant.p1}
-            disabled={locked}
             onChange={(ev) => onChangeP1(ev.target.value)}
             placeholder={isDoubles ? 'Player 1' : 'Player'}
             className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
@@ -393,7 +403,6 @@ function EntrantRow({ entrant, locked, isDoubles, onChangeP1, onChangeP2, onRemo
               <input
                 type="text"
                 value={entrant.p2}
-                disabled={locked}
                 onChange={(ev) => onChangeP2(ev.target.value)}
                 placeholder="Player 2"
                 className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"

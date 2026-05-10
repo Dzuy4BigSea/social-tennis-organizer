@@ -34,3 +34,30 @@ export function formatTimeOnly(hhmm) {
   d.setHours(h, m, 0, 0)
   return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
 }
+
+/**
+ * "May 15" style for ISO-date strings (`YYYY-MM-DD`). Used by the
+ * Home + All Events list views to render compact date ranges.
+ */
+export function shortDate(iso) {
+  if (!iso) return ''
+  const d = new Date(iso + 'T00:00:00')
+  if (isNaN(d)) return iso
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+}
+
+/**
+ * Recent-room object → range label like "May 15–17", or "May 15"
+ * for single-day events, or "Ongoing" for events without a fixed
+ * end date that the pro flagged as still running. Returns null
+ * when the room has no date info — so callers can chain with `&&`.
+ */
+export function formatDateRange(room) {
+  if (!room) return null
+  if (room.ongoing) return 'Ongoing'
+  if (room.startDate && room.endDate && room.startDate !== room.endDate) {
+    return `${shortDate(room.startDate)}–${shortDate(room.endDate)}`
+  }
+  if (room.startDate) return shortDate(room.startDate)
+  return null
+}

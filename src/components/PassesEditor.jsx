@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 
 /**
  * Per-division feed-in passes editor. Each pass is a full
@@ -14,8 +14,9 @@ export default function PassesEditor({ passes, locked, onChange }) {
   const list = passes && passes.length ? passes : [{ winningScore: 7 }]
 
   function update(idx, ws) {
+    // Caller has already parsed/validated; this just persists.
     const next = list.map((p, i) =>
-      i === idx ? { ...p, winningScore: Math.max(1, parseInt(ws) || 1) } : p
+      i === idx ? { ...p, winningScore: ws } : p
     )
     onChange(next)
   }
@@ -60,37 +61,82 @@ export default function PassesEditor({ passes, locked, onChange }) {
       )}
       <ol className="space-y-2">
         {list.map((p, idx) => (
-          <li
+          <PassRow
             key={idx}
-            className="flex items-center gap-3 bg-vinoy-cream rounded-xl px-3 py-2"
-          >
-            <span className="w-8 h-8 rounded-full bg-vinoy-green text-white flex items-center justify-center font-bold text-sm">
-              {idx + 1}
-            </span>
-            <span className="text-sm text-vinoy-ink/80 flex-1">First to</span>
-            <input
-              type="number"
-              min="1"
-              max="21"
-              value={p.winningScore}
-              disabled={locked}
-              onChange={(e) => update(idx, e.target.value)}
-              className="w-20 text-center text-lg font-bold border-2 border-vinoy-border rounded-lg px-2 py-1 focus:border-vinoy-green focus:outline-none disabled:bg-gray-100"
-            />
-            <span className="text-sm text-vinoy-ink/60">games</span>
-            {!locked && list.length > 1 && (
-              <button
-                type="button"
-                onClick={() => remove(idx)}
-                className="text-vinoy-ink/40 hover:text-red-600 px-1"
-                title="Remove round"
-              >
-                ✕
-              </button>
-            )}
-          </li>
+            pass={p}
+            idx={idx}
+            locked={locked}
+            removable={!locked && list.length > 1}
+            onCommit={(ws) => update(idx, ws)}
+            onRemove={() => remove(idx)}
+          />
         ))}
       </ol>
     </div>
+  )
+}
+
+/**
+ * Single round row. Holds the input value as a *string* in local
+ * state during typing so the field is allowed to be momentarily
+ * empty — backspacing the last digit shouldn't snap back to "1".
+ * Commit happens on every change when the parsed value is valid,
+ * and on blur to enforce the min when the field was left empty.
+ */
+function PassRow({ pass, idx, locked, removable, onCommit, onRemove }) {
+  const [draft, setDraft] = useState(String(pass.winningScore ?? ''))
+
+  // Pull external updates (e.g. another tab editing the same
+  // division) into the local draft. Skip if the user is mid-typing
+  // an empty string — otherwise we'd race them.
+  useEffect(() => {
+    setDraft(prev => (prev === '' ? prev : String(pass.winningScore ?? '')))
+  }, [pass.winningScore])
+
+  function handleChange(value) {
+    setDraft(value)
+    if (value === '') return // allow empty during typing; commit clamps on blur
+    const parsed = parseInt(value, 10)
+    if (Number.isFinite(parsed) && parsed >= 1) {
+      onCommit(parsed)
+    }
+  }
+
+  function handleBlur() {
+    if (draft === '' || !Number.isFinite(parseInt(draft, 10))) {
+      const fallback = Math.max(1, pass.winningScore || 1)
+      setDraft(String(fallback))
+      onCommit(fallback)
+    }
+  }
+
+  return (
+    <li className="flex items-center gap-3 bg-vinoy-cream rounded-xl px-3 py-2">
+      <span className="w-8 h-8 rounded-full bg-vinoy-green text-white flex items-center justify-center font-bold text-sm">
+        {idx + 1}
+      </span>
+      <span className="text-sm text-vinoy-ink/80 flex-1">First to</span>
+      <input
+        type="number"
+        min="1"
+        max="21"
+        value={draft}
+        disabled={locked}
+        onChange={(e) => handleChange(e.target.value)}
+        onBlur={handleBlur}
+        className="w-20 text-center text-lg font-bold border-2 border-vinoy-border rounded-lg px-2 py-1 focus:border-vinoy-green focus:outline-none disabled:bg-gray-100"
+      />
+      <span className="text-sm text-vinoy-ink/60">games</span>
+      {removable && (
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-vinoy-ink/40 hover:text-red-600 px-1"
+          title="Remove round"
+        >
+          ✕
+        </button>
+      )}
+    </li>
   )
 }

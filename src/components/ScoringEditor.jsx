@@ -53,26 +53,45 @@ export default function ScoringEditor({ scoring, locked, onChange }) {
             onChange={(v) => patch({ setsToWin: v })}
           />
 
-          <SegmentedField
+          <SegmentedFieldWithCustom
             label="Games to win the set"
             options={[
               { id: 4, label: '4 games' },
               { id: 6, label: '6 games' },
               { id: 8, label: '8-game pro set' },
             ]}
+            min={3}
+            max={10}
             value={scoring?.gamesPerSet ?? 6}
-            onChange={(v) => patch({ gamesPerSet: v })}
+            onChange={(v) => {
+              const games = clamp(v, 3, 10)
+              const next = { gamesPerSet: games }
+              // Keep tiebreak in sync with the games target unless
+              // the pro has explicitly customized it. Most pros
+              // expect "tiebreak at 8-8" when "8-game pro set" is
+              // chosen, etc., so we mirror by default.
+              if (
+                scoring?.tiebreakAtGames == null ||
+                scoring.tiebreakAtGames === scoring.gamesPerSet
+              ) {
+                next.tiebreakAtGames = games
+              }
+              patch(next)
+            }}
           />
 
-          <SegmentedField
+          <SegmentedFieldWithCustom
             label="Set tiebreak at"
             options={[
               { id: 4, label: '4-4' },
               { id: 6, label: '6-6' },
               { id: 8, label: '8-8' },
             ]}
+            min={3}
+            max={10}
+            valueLabel={(v) => `${v}-${v}`}
             value={scoring?.tiebreakAtGames ?? 6}
-            onChange={(v) => patch({ tiebreakAtGames: v })}
+            onChange={(v) => patch({ tiebreakAtGames: clamp(v, 3, 10) })}
           />
 
           <SegmentedField
@@ -127,6 +146,105 @@ export default function ScoringEditor({ scoring, locked, onChange }) {
   )
 }
 
+/**
+ * Like SegmentedField but with a "Custom" pill that opens a number
+ * input so the pro can pick a games-to-win or tiebreak threshold
+ * outside the common presets (e.g. 9 games for one club's house
+ * format). The input is bounded by `min`/`max` and accepts Enter
+ * to commit. Active state lights up when the current value isn't
+ * one of the preset options.
+ */
+function SegmentedFieldWithCustom({
+  label,
+  options,
+  value,
+  onChange,
+  min = 1,
+  max = 99,
+  valueLabel,
+}) {
+  const isPreset = options.some(o => o.id === value)
+  const [editing, setEditing] = useState(!isPreset)
+  const [draft, setDraft] = useState(String(value))
+  return (
+    <div>
+      <div className="text-xs font-semibold text-vinoy-ink/70 mb-1">{label}</div>
+      <div className="flex flex-wrap gap-1.5 items-center">
+        {options.map(opt => {
+          const active = opt.id === value && !editing
+          return (
+            <button
+              key={String(opt.id)}
+              type="button"
+              onClick={() => {
+                onChange(opt.id)
+                setEditing(false)
+              }}
+              className={[
+                'rounded-full border-2 transition font-semibold px-3 py-1 text-xs',
+                active
+                  ? 'bg-vinoy-green border-vinoy-green text-white'
+                  : 'bg-white border-vinoy-border text-vinoy-ink/70 hover:border-vinoy-green hover:text-vinoy-green',
+              ].join(' ')}
+            >
+              {opt.label}
+            </button>
+          )
+        })}
+        {editing ? (
+          <span className="inline-flex items-center gap-1 rounded-full border-2 border-vinoy-green bg-white pl-2 pr-1 py-0.5 text-xs">
+            <input
+              type="number"
+              min={min}
+              max={max}
+              value={draft}
+              autoFocus
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={() => {
+                const n = parseInt(draft)
+                if (Number.isFinite(n)) onChange(clamp(n, min, max))
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const n = parseInt(draft)
+                  if (Number.isFinite(n)) onChange(clamp(n, min, max))
+                  e.currentTarget.blur()
+                }
+              }}
+              className="w-12 text-center font-semibold bg-transparent focus:outline-none"
+            />
+            <span className="text-vinoy-ink/40 text-[10px] uppercase tracking-wider pr-1">
+              {valueLabel ? valueLabel(draft || '?') : 'games'}
+            </span>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              setDraft(String(value))
+              setEditing(true)
+            }}
+            className={[
+              'rounded-full border-2 border-dashed transition font-semibold px-3 py-1 text-xs',
+              !isPreset
+                ? 'bg-vinoy-green border-vinoy-green text-white'
+                : 'bg-white border-vinoy-border text-vinoy-ink/70 hover:border-vinoy-green hover:text-vinoy-green',
+            ].join(' ')}
+            title={`Pick a custom value (${min}-${max})`}
+          >
+            {isPreset ? 'Custom' : valueLabel ? valueLabel(value) : `${value}`}
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function clamp(n, min, max) {
+  return Math.min(max, Math.max(min, n))
+}
+
 function SegmentedField({ label, options, value, onChange }) {
   return (
     <div>
@@ -177,8 +295,12 @@ function describeScoring(s) {
   else if (s.setsToWin === 3) parts.push('Best of 5')
   else parts.push('Best of 3')
   if (s.gamesPerSet === 8) parts.push('8-game pro set')
-  else if (s.gamesPerSet !== 6) parts.push(`${s.gamesPerSet}-game sets`)
-  if (s.tiebreakAtGames !== 6) parts.push(`tiebreak at ${s.tiebreakAtGames}-${s.tiebreakAtGames}`)
+  else if (s.gamesPerSet != null && s.gamesPerSet !== 6) {
+    parts.push(`${s.gamesPerSet}-game sets`)
+  }
+  if (s.tiebreakAtGames != null && s.tiebreakAtGames !== 6 && s.tiebreakAtGames !== s.gamesPerSet) {
+    parts.push(`tiebreak at ${s.tiebreakAtGames}-${s.tiebreakAtGames}`)
+  }
   if (s.adScoring === false) parts.push('No-ad')
   if ((s.setsToWin ?? 2) >= 2 && s.finalSetMode === 'matchTiebreak') {
     parts.push(`MTB to ${s.finalSetTiebreakTo || 10}`)

@@ -347,7 +347,7 @@ function PairBasedDivisionCard({ division, dispatch, ifAuthed }) {
             )
           }
           placeholder="Division name (e.g. Men's 4.0)"
-          className="flex-1 min-w-[10rem] font-bold text-lg text-vinoy-ink bg-transparent focus:outline-none border-b border-transparent focus:border-vinoy-green"
+          className="flex-1 min-w-[10rem] font-display text-xl font-bold text-vinoy-green bg-transparent focus:outline-none border-b border-transparent focus:border-vinoy-green"
           disabled={locked}
         />
         <input

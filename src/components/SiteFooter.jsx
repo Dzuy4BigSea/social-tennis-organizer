@@ -37,15 +37,21 @@ export default function SiteFooter({ className = '' }) {
           top — the SVG's intrinsic aspect is ~3:1 so width drives
           height directly. */}
       <div className="relative text-center text-xs text-vinoy-ink/55 px-4 min-h-[14rem] sm:min-h-[16rem] lg:min-h-[19rem] flex items-end justify-center pb-5 sm:pb-6 print:min-h-0 print:pt-2 print:pb-2">
-        Purpose Built by{' '}
-        <a
-          href="https://bigsea.co"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-vinoy-green hover:text-vinoy-greenDark underline underline-offset-2"
-        >
-          Big Sea
-        </a>
+        {/* Wrap the attribution in a single inline span so the text
+            and the link don't become separate flex items — that's
+            what was collapsing the space between "by" and "Big
+            Sea" on screen. */}
+        <span>
+          Purpose Built by{' '}
+          <a
+            href="https://bigsea.co"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-vinoy-green hover:text-vinoy-greenDark underline underline-offset-2"
+          >
+            Big Sea
+          </a>
+        </span>
       </div>
     </footer>
   )

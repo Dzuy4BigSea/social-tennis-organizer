@@ -24,7 +24,7 @@ export default function SiteFooter({ className = '' }) {
           tall the footer ends up at any given width. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center select-none opacity-[0.13] print:hidden"
+        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center select-none opacity-[0.22] print:hidden"
       >
         <VinoyHotelSilhouette
           className="w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl text-vinoy-green"

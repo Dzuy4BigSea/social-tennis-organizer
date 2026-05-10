@@ -112,8 +112,8 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
 
   return (
     <section className="bg-white rounded-2xl border border-vinoy-border p-4 mb-4 shadow-sm">
-      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-        <div className="flex-1 min-w-0">
+      <div className="flex items-start sm:items-center justify-between mb-3 flex-col sm:flex-row gap-2 sm:gap-3">
+        <div className="w-full sm:flex-1 min-w-0">
           <input
             type="text"
             value={bracket.name || ''}
@@ -134,7 +134,7 @@ export default function SetupBracket({ bracket, dispatch, ifAuthed, onRemove }) 
             {isDoubles ? 'Doubles' : 'Singles'}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
           {locked ? (
             <button
               onClick={unlock}

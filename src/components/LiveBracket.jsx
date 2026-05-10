@@ -77,8 +77,9 @@ export default function LiveBracket({ bracket, dispatch, ifAuthed, proAuthed }) 
       {editing && (
         <BracketScoreModal
           match={enriched.find(m => m.id === editing.id) || editing}
-          divisionId={bracket.id}
+          division={bracket}
           dispatch={dispatch}
+          ifAuthed={ifAuthed}
           onClose={() => setEditing(null)}
         />
       )}
@@ -428,99 +429,338 @@ function Side({ side, score, winner }) {
   )
 }
 
-function BracketScoreModal({ match, divisionId, dispatch, onClose }) {
-  const [scoreA, setScoreA] = useState(String(match.scoreA ?? ''))
-  const [scoreB, setScoreB] = useState(String(match.scoreB ?? ''))
+function BracketScoreModal({ match, division, dispatch, ifAuthed, onClose }) {
+  const scoring = division.scoring || {}
+  const setsToWin = clampSets(scoring.setsToWin ?? 2)
+  const totalPossibleSets = setsToWin * 2 - 1
+  const gamesPerSet = scoring.gamesPerSet ?? 6
 
-  const labelA =
-    match.sideA?.kind === 'entrant' ? entrantLabel(match.sideA.entrant) : '—'
-  const labelB =
-    match.sideB?.kind === 'entrant' ? entrantLabel(match.sideB.entrant) : '—'
+  // Pre-fill from match.setsA/setsB if recorded that way; otherwise
+  // if we only have aggregate scoreA/scoreB (legacy), pad sets to
+  // match. Default is one empty input pair per possible set.
+  const initialA = padSets(match.setsA, totalPossibleSets, match.scoreA, match.setsB ? null : 'A')
+  const initialB = padSets(match.setsB, totalPossibleSets, match.scoreB, match.setsA ? null : 'B')
+  const [setsA, setSetsA] = useState(initialA)
+  const [setsB, setSetsB] = useState(initialB)
+
+  const entrantA = match.sideA?.kind === 'entrant' ? match.sideA.entrant : null
+  const entrantB = match.sideB?.kind === 'entrant' ? match.sideB.entrant : null
+  const labelA = entrantA ? entrantLabel(entrantA) : '—'
+  const labelB = entrantB ? entrantLabel(entrantB) : '—'
+
+  // Live-derived sets-won counts so the pro can see who's winning
+  // the match while typing in per-set games.
+  const won = countSetsWon(setsA, setsB)
+
+  // Inline name editing piggybacks on the existing UPDATE_ENTRANT
+  // action — we call it on save if the strings differ from the
+  // entrant on file. Keeps the modal as the single edit surface.
+  const [nameAp1, setNameAp1] = useState(entrantA?.p1 || '')
+  const [nameAp2, setNameAp2] = useState(entrantA?.p2 || '')
+  const [nameBp1, setNameBp1] = useState(entrantB?.p1 || '')
+  const [nameBp2, setNameBp2] = useState(entrantB?.p2 || '')
+  const isDoubles = division.entrantKind === 'doubles'
+  const [showNameEdit, setShowNameEdit] = useState(false)
 
   function save() {
-    const a = parseInt(scoreA)
-    const b = parseInt(scoreB)
-    if (isNaN(a) || isNaN(b) || a < 0 || b < 0) return
-    if (a === b) return alert('A bracket match must have a winner.')
-    dispatch({
-      type: 'RECORD_BRACKET_SCORE',
-      payload: { divisionId, matchId: match.id, scoreA: a, scoreB: b },
+    // Persist any name changes first so downstream display picks
+    // up new labels even if the score itself is empty.
+    ifAuthed(() => {
+      const persistName = (entrant, p1, p2) => {
+        if (!entrant) return
+        const a = p1.trim()
+        const b = p2.trim()
+        if (a !== (entrant.p1 || '') || b !== (entrant.p2 || '')) {
+          dispatch({
+            type: 'UPDATE_ENTRANT',
+            payload: { divisionId: division.id, id: entrant.id, patch: { p1: a, p2: b } },
+          })
+        }
+      }
+      persistName(entrantA, nameAp1, nameAp2)
+      persistName(entrantB, nameBp1, nameBp2)
+
+      // Strip trailing empty pairs and only persist sets that have
+      // both numbers filled in. Best-of-3 matches usually only need
+      // 2 or 3 sets played; we don't want to record empty 4th/5th.
+      const trimmed = trimEmptyTrailingSets(setsA, setsB)
+      if (trimmed.setsA.length === 0) {
+        // No sets at all → caller probably opened to edit names only.
+        // If neither side has any score input, just close.
+        onClose?.()
+        return
+      }
+      const w = countSetsWon(trimmed.setsA, trimmed.setsB)
+      if (w.a === w.b) {
+        return alert('Bracket matches need a winner. Adjust the set scores.')
+      }
+      dispatch({
+        type: 'RECORD_BRACKET_SCORE',
+        payload: {
+          divisionId: division.id,
+          matchId: match.id,
+          setsA: trimmed.setsA.map(s => Number(s)),
+          setsB: trimmed.setsB.map(s => Number(s)),
+        },
+      })
+      onClose?.()
     })
-    onClose?.()
   }
 
   function clear() {
     if (!confirm('Clear this score and put the match back in play?')) return
-    dispatch({
-      type: 'CLEAR_BRACKET_SCORE',
-      payload: { divisionId, matchId: match.id },
+    ifAuthed(() => {
+      dispatch({
+        type: 'CLEAR_BRACKET_SCORE',
+        payload: { divisionId: division.id, matchId: match.id },
+      })
+      onClose?.()
     })
-    onClose?.()
+  }
+
+  function setOneSet(side, idx, val) {
+    const setter = side === 'A' ? setSetsA : setSetsB
+    setter(prev => {
+      const next = [...prev]
+      next[idx] = val
+      return next
+    })
   }
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4"
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl"
+        className="bg-white w-full sm:max-w-md sm:rounded-2xl shadow-xl max-h-[95vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-3">
-          <h2 className="font-display text-lg font-bold text-vinoy-green">
-            {match.completed ? 'Edit score' : 'Enter score'}
-          </h2>
-          <p className="text-xs text-vinoy-ink/60">
-            Round {match.round} · {matchLabel(match.id)}
-          </p>
-        </div>
-        <div className="space-y-2 mb-4">
-          <ScoreRow label={labelA} value={scoreA} onChange={setScoreA} />
-          <div className="text-center text-gray-400 text-xs font-bold">vs</div>
-          <ScoreRow label={labelB} value={scoreB} onChange={setScoreB} />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="sticky top-0 bg-white border-b border-vinoy-border px-5 py-3 flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-bold text-vinoy-green">
+              {match.completed ? 'Edit match' : 'Enter score'}
+            </h2>
+            <p className="text-xs text-vinoy-ink/60">
+              Round {match.round} · {matchLabel(match.id)} · best of {totalPossibleSets} · sets to {gamesPerSet}
+            </p>
+          </div>
           <button
             onClick={onClose}
-            className="py-3 rounded-xl border-2 border-vinoy-border text-vinoy-ink/70 font-semibold"
+            className="text-vinoy-ink/40 hover:text-vinoy-ink text-2xl leading-none"
           >
-            Cancel
-          </button>
-          <button
-            onClick={save}
-            className="py-3 rounded-xl bg-vinoy-green text-white font-bold"
-          >
-            Save
+            ×
           </button>
         </div>
-        {match.completed && (
-          <button
-            onClick={clear}
-            className="w-full mt-2 py-2 text-sm text-red-600 hover:underline"
-          >
-            Clear score
-          </button>
+
+        <div className="p-5 space-y-4">
+          <SideHeader
+            label={labelA}
+            wonSets={won.a}
+            isWinner={won.a > won.b}
+          />
+          <SetInputRow
+            sets={setsA}
+            onChange={(idx, v) => setOneSet('A', idx, v)}
+            counterpart={setsB}
+            highlight="A"
+            gamesPerSet={gamesPerSet}
+          />
+
+          <SideHeader
+            label={labelB}
+            wonSets={won.b}
+            isWinner={won.b > won.a}
+          />
+          <SetInputRow
+            sets={setsB}
+            onChange={(idx, v) => setOneSet('B', idx, v)}
+            counterpart={setsA}
+            highlight="B"
+            gamesPerSet={gamesPerSet}
+          />
+
+          {(entrantA || entrantB) && (
+            <div className="border-t border-vinoy-border pt-3">
+              <button
+                type="button"
+                onClick={() => setShowNameEdit(s => !s)}
+                className="text-xs text-vinoy-ink/70 hover:text-vinoy-green font-semibold"
+              >
+                {showNameEdit ? '▾ Hide name editor' : '▸ Edit player names'}
+              </button>
+              {showNameEdit && (
+                <div className="mt-2 space-y-2">
+                  {entrantA && (
+                    <NameEditor
+                      label={`Side A (seed ${entrantA.seed})`}
+                      isDoubles={isDoubles}
+                      p1={nameAp1}
+                      p2={nameAp2}
+                      onP1={setNameAp1}
+                      onP2={setNameAp2}
+                    />
+                  )}
+                  {entrantB && (
+                    <NameEditor
+                      label={`Side B (seed ${entrantB.seed})`}
+                      isDoubles={isDoubles}
+                      p1={nameBp1}
+                      p2={nameBp2}
+                      onP1={setNameBp1}
+                      onP2={setNameBp2}
+                    />
+                  )}
+                  <p className="text-xs text-vinoy-ink/50 italic">
+                    Saving here updates the seed everywhere — same as
+                    a substitute.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="py-3 rounded-xl border-2 border-vinoy-border text-vinoy-ink/70 font-semibold"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              className="py-3 rounded-xl bg-vinoy-green text-white font-bold"
+            >
+              Save
+            </button>
+          </div>
+          {match.completed && (
+            <button
+              onClick={clear}
+              className="w-full py-2 text-sm text-red-600 hover:underline"
+            >
+              Clear score
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SideHeader({ label, wonSets, isWinner }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <div className={`font-semibold truncate ${isWinner ? 'text-vinoy-green' : 'text-vinoy-ink'}`}>
+        {label}
+      </div>
+      <div className={`text-xs ${isWinner ? 'text-vinoy-green font-bold' : 'text-vinoy-ink/50'}`}>
+        {wonSets} {wonSets === 1 ? 'set' : 'sets'}
+      </div>
+    </div>
+  )
+}
+
+function SetInputRow({ sets, onChange, counterpart, highlight, gamesPerSet }) {
+  return (
+    <div
+      className="grid gap-2"
+      style={{ gridTemplateColumns: `repeat(${sets.length}, minmax(0, 1fr))` }}
+    >
+      {sets.map((value, idx) => {
+        const opp = counterpart[idx]
+        const my = Number(value)
+        const their = Number(opp)
+        const won = Number.isFinite(my) && Number.isFinite(their) && my > their
+        return (
+          <div key={idx}>
+            <div className="text-[10px] uppercase tracking-wider text-vinoy-ink/40 mb-0.5 text-center">
+              Set {idx + 1}
+            </div>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="0"
+              max={gamesPerSet + 5}
+              value={value}
+              onChange={(e) => onChange(idx, e.target.value)}
+              placeholder="—"
+              className={[
+                'w-full h-12 text-center text-xl font-mono font-bold border-2 rounded-xl focus:outline-none transition',
+                won
+                  ? 'border-vinoy-green bg-vinoy-cream text-vinoy-green'
+                  : 'border-vinoy-border focus:border-vinoy-green',
+              ].join(' ')}
+            />
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function NameEditor({ label, isDoubles, p1, p2, onP1, onP2 }) {
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-vinoy-ink/50 mb-1">
+        {label}
+      </div>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-1.5">
+        <input
+          type="text"
+          value={p1}
+          onChange={(e) => onP1(e.target.value)}
+          placeholder={isDoubles ? 'Player 1' : 'Player'}
+          className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
+        />
+        {isDoubles && (
+          <>
+            <span className="hidden sm:inline text-vinoy-ink/30 shrink-0">/</span>
+            <input
+              type="text"
+              value={p2}
+              onChange={(e) => onP2(e.target.value)}
+              placeholder="Player 2"
+              className="flex-1 min-w-0 bg-white border border-vinoy-border rounded-lg px-2 py-1 text-sm"
+            />
+          </>
         )}
       </div>
     </div>
   )
 }
 
-function ScoreRow({ label, value, onChange }) {
-  return (
-    <div className="flex items-center gap-3 bg-vinoy-cream rounded-xl p-3">
-      <div className="flex-1 min-w-0 font-semibold text-vinoy-ink truncate">
-        {label}
-      </div>
-      <input
-        type="number"
-        inputMode="numeric"
-        min="0"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-16 h-12 text-center text-2xl font-mono font-bold border-2 border-vinoy-border rounded-xl focus:border-vinoy-green focus:outline-none"
-      />
-    </div>
-  )
+function clampSets(n) {
+  const v = parseInt(n)
+  if (!Number.isFinite(v)) return 2
+  return Math.max(1, Math.min(3, v))
+}
+
+function padSets(arr, total, fallbackAggregate, _aggregateSide) {
+  const out = []
+  for (let i = 0; i < total; i++) {
+    const v = arr?.[i]
+    out.push(v == null ? '' : String(v))
+  }
+  return out
+}
+
+function trimEmptyTrailingSets(setsA, setsB) {
+  let len = Math.max(setsA.length, setsB.length)
+  while (len > 0 && setsA[len - 1] === '' && setsB[len - 1] === '') len--
+  return { setsA: setsA.slice(0, len), setsB: setsB.slice(0, len) }
+}
+
+function countSetsWon(setsA, setsB) {
+  let a = 0
+  let b = 0
+  const len = Math.max(setsA.length, setsB.length)
+  for (let i = 0; i < len; i++) {
+    const x = Number(setsA[i])
+    const y = Number(setsB[i])
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    if (x > y) a++
+    else if (y > x) b++
+  }
+  return { a, b }
 }

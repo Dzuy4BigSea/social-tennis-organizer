@@ -773,15 +773,44 @@ function reducer(state, action) {
     }
 
     case 'RECORD_BRACKET_SCORE': {
-      const { divisionId, matchId, scoreA, scoreB } = action.payload
-      const winnerSlot = scoreA > scoreB ? 'A' : scoreB > scoreA ? 'B' : null
+      // Bracket scores can come in two shapes:
+      //   - Aggregate: { scoreA, scoreB } — sets-won totals for
+      //     legacy callers / quick score entry.
+      //   - Per-set:   { setsA: [6,4,6], setsB: [3,6,2] } — full
+      //     per-set games breakdown. We derive the aggregates by
+      //     counting which side took each set.
+      // Persist whatever the caller sent; store the derived totals
+      // so the bracket UI keeps working unchanged downstream.
+      const { divisionId, matchId, scoreA, scoreB, setsA, setsB } = action.payload
+      let aggA = scoreA
+      let aggB = scoreB
+      if (Array.isArray(setsA) && Array.isArray(setsB)) {
+        aggA = 0
+        aggB = 0
+        for (let i = 0; i < Math.max(setsA.length, setsB.length); i++) {
+          const a = Number(setsA[i])
+          const b = Number(setsB[i])
+          if (!Number.isFinite(a) || !Number.isFinite(b)) continue
+          if (a > b) aggA++
+          else if (b > a) aggB++
+        }
+      }
+      const winnerSlot = aggA > aggB ? 'A' : aggB > aggA ? 'B' : null
       return {
         ...state,
         divisions: state.divisions.map(d => {
           if (d.id !== divisionId) return d
           const nextMatches = (d.matches || []).map(m =>
             m.id === matchId
-              ? { ...m, scoreA, scoreB, completed: winnerSlot != null, winnerSlot }
+              ? {
+                  ...m,
+                  scoreA: aggA,
+                  scoreB: aggB,
+                  setsA: Array.isArray(setsA) ? setsA : m.setsA,
+                  setsB: Array.isArray(setsB) ? setsB : m.setsB,
+                  completed: winnerSlot != null,
+                  winnerSlot,
+                }
               : { ...m }
           )
           applyWalkoverPropagation(nextMatches)

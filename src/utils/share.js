@@ -1,4 +1,8 @@
-const API = './tennis-save.php'
+import {
+  loadEventByCode,
+  saveEventByCode,
+  saveEventByCodeBeacon,
+} from '../lib/events.js'
 
 // Unambiguous characters — easy to read aloud or type on mobile
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
@@ -78,75 +82,32 @@ export function setStoredPin(pin) {
   } catch {}
 }
 
-/**
- * Save state to the server under a room code.
- * If the room is PIN-protected the server checks the X-Tournament-Pin header.
- * Returns { ok, status } so callers can detect a 403 (bad pin) and prompt.
- */
+// Server I/O moved to Supabase in Phase 3. The signatures match the old
+// PHP-backed wrappers so the store, polling, and beacon flush in
+// useTournament.js don't need to change. Access control is now RLS on
+// `events` / `event_state` / `event_join_codes` keyed off the signed-in
+// user's club role — the X-Tournament-Pin header is gone. The PIN UI
+// (PinGate, getStoredPin) is left in place for now; it's effectively
+// inert at the network layer and will be removed in a follow-up.
+
 export async function saveToRoom(code, state) {
-  try {
-    const res = await fetch(`${API}?code=${code}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Tournament-Pin': getStoredPin(),
-      },
-      body: JSON.stringify(state),
-    })
-    return { ok: res.ok, status: res.status }
-  } catch {
-    return { ok: false, status: 0 }
-  }
+  return saveEventByCode(code, state)
 }
 
-/**
- * Best-effort save during page unload. Fires a `keepalive` POST so
- * the browser will let the request complete even after the tab is
- * gone. Used as the last line of defense when a debounced save is
- * still pending — most often the just-created event the pro never
- * gave time to land on the server.
- */
 export function saveToRoomBeacon(code, state) {
-  try {
-    fetch(`${API}?code=${code}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Tournament-Pin': getStoredPin(),
-      },
-      body: JSON.stringify(state),
-      keepalive: true,
-    }).catch(() => {})
-  } catch {}
+  saveEventByCodeBeacon(code, state)
 }
 
-/**
- * Reads are always public — anyone with the link can view a tournament.
- */
 export async function loadFromRoom(code) {
-  try {
-    const res = await fetch(`${API}?code=${code}`, { cache: 'no-store' })
-    if (!res.ok) return null
-    return await res.json()
-  } catch {
-    return null
-  }
+  return loadEventByCode(code)
 }
 
-/**
- * Probe whether the current stored PIN is accepted for this room.
- * The server has a `?check=1` mode that returns 200/403 without writing.
- */
-export async function checkPin(code) {
-  try {
-    const res = await fetch(`${API}?code=${code}&check=1`, {
-      method: 'POST',
-      headers: { 'X-Tournament-Pin': getStoredPin() },
-    })
-    return res.ok
-  } catch {
-    return false
-  }
+// PIN-check kept for backwards compat with the Setup/LiveBoard PIN
+// gates; they no longer affect server writes. The gate is now purely
+// a local "have you set a PIN on this device" check — keep returning
+// true so the gates don't block authenticated users.
+export async function checkPin(_code) {
+  return true
 }
 
 /**

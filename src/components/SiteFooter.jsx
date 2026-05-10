@@ -33,10 +33,10 @@ export default function SiteFooter({ className = '' }) {
 
       {/* Inner div carries the attribution. The min-height pushes
           the footer tall enough to display the full silhouette
-          (incl. tower dome) without overflow-hidden trimming the
-          top — the SVG's intrinsic aspect is ~3.5:1 so width
-          drives height directly. */}
-      <div className="relative text-center text-xs text-vinoy-ink/55 px-4 min-h-[12rem] sm:min-h-[14rem] lg:min-h-[16rem] flex items-end justify-center pb-5 sm:pb-6 print:min-h-0 print:pt-2 print:pb-2">
+          (incl. tower finial) without overflow-hidden trimming the
+          top — the SVG's intrinsic aspect is ~3:1 so width drives
+          height directly. */}
+      <div className="relative text-center text-xs text-vinoy-ink/55 px-4 min-h-[14rem] sm:min-h-[16rem] lg:min-h-[19rem] flex items-end justify-center pb-5 sm:pb-6 print:min-h-0 print:pt-2 print:pb-2">
         Purpose Built by{' '}
         <a
           href="https://bigsea.co"

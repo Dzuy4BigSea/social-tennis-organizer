@@ -2,6 +2,119 @@ import React, { useState, useMemo } from 'react'
 import { resolveSlot, entrantLabel } from '../utils/bracket.js'
 import { formatMatchTime } from '../utils/format.js'
 
+// ── Bracket layout constants ─────────────────────────────────────────────────
+// MATCH_H is the rendered height of one BracketMatch card (px). Two Side rows
+// of py-2 + text-sm (≈36px each) + 1px divider = 73px natural height.
+const MATCH_H = 73
+const R1_GAP  = 8          // gap between R1 cards; doubles each round visually
+const UNIT    = MATCH_H + R1_GAP
+const COL_W   = 192        // 12rem, matches existing min-w-[12rem]
+const COL_GAP = 28         // px gap between round columns
+const STEM_W  = COL_GAP / 2
+const LINE_COLOR = '#d4c5a0'  // ~vinoy-border
+
+/**
+ * Top offset (px) for a match card given its 1-based round and 0-based slotIdx.
+ * Formula: (slotIdx * stride + offset) * UNIT where stride = 2^(round-1)
+ * and offset = (stride-1)/2. This places every Rn match at the exact vertical
+ * midpoint of its two R(n-1) feeders.
+ */
+function matchTopPx(round, slotIdx) {
+  const stride = 1 << (round - 1)
+  const offset = (stride - 1) / 2
+  return (slotIdx * stride + offset) * UNIT
+}
+
+/**
+ * Inner column grid with proper bracket alignment and connector lines.
+ * Used by both BracketGrid (single-elim) and BracketSection (WB in double-elim).
+ * Each match card is absolutely positioned so Rn cards sit exactly between the
+ * two Rn-1 cards that feed into them.  Connector lines draw the classic ┤ shape.
+ */
+function AlignedBracketColumns({ cols, totalRounds, r1Count, onPick, proAuthed, getRoundLabel }) {
+  const totalH = r1Count > 0
+    ? r1Count * MATCH_H + (r1Count - 1) * R1_GAP
+    : MATCH_H
+
+  return (
+    <div className="flex min-w-max" style={{ gap: COL_GAP }}>
+      {cols.map((roundMatches, colIdx) => {
+        const r = colIdx + 1
+        const isFinalCol = r === totalRounds
+        return (
+          <div key={r} style={{ width: COL_W }}>
+            <div className="text-xs font-semibold text-vinoy-ink/60 uppercase tracking-wider px-1 mb-2">
+              {getRoundLabel(r)}
+            </div>
+            <div className="relative" style={{ height: totalH }}>
+              {roundMatches.map((m) => {
+                const slotIdx     = m.slot - 1
+                const mTop        = matchTopPx(r, slotIdx)
+                const centerY     = mTop + MATCH_H / 2
+                const isUpper     = slotIdx % 2 === 0
+                const nextSlotIdx = Math.floor(slotIdx / 2)
+                const nextCenterY = isFinalCol
+                  ? null
+                  : matchTopPx(r + 1, nextSlotIdx) + MATCH_H / 2
+                const isByeMatch  = m.completed &&
+                  (m.sideA?.kind === 'bye' || m.sideB?.kind === 'bye')
+
+                return (
+                  <div
+                    key={m.id}
+                    className="absolute"
+                    style={{ top: mTop, width: COL_W, height: MATCH_H }}
+                  >
+                    <BracketMatch
+                      match={m}
+                      onClick={() => onPick(m)}
+                      clickable={proAuthed && (m.ready || m.completed) && !isByeMatch}
+                      dimmed={isByeMatch}
+                    />
+
+                    {/* ── Connector lines to next round ── */}
+                    {!isFinalCol && nextCenterY !== null && (<>
+                      {/* Horizontal stub right from match center */}
+                      <div style={{
+                        position: 'absolute',
+                        top: MATCH_H / 2 - 0.5,
+                        left: COL_W,
+                        width: STEM_W,
+                        height: 1,
+                        background: LINE_COLOR,
+                      }} />
+                      {/* Vertical arm — upper goes down, lower goes up */}
+                      <div style={{
+                        position: 'absolute',
+                        left: COL_W + STEM_W,
+                        top: isUpper ? MATCH_H / 2 : nextCenterY - mTop,
+                        width: 1,
+                        height: Math.abs(centerY - nextCenterY),
+                        background: LINE_COLOR,
+                      }} />
+                      {/* Horizontal stub from midpoint into next column (lower only) */}
+                      {!isUpper && (
+                        <div style={{
+                          position: 'absolute',
+                          top: nextCenterY - mTop - 0.5,
+                          left: COL_W + STEM_W,
+                          width: STEM_W,
+                          height: 1,
+                          background: LINE_COLOR,
+                        }} />
+                      )}
+                    </>)}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 /**
  * Live view for a single-elimination bracket. Two stacked panels:
  *
@@ -241,6 +354,7 @@ function DoubleElimGrid({ bracket, matches, onPick, proAuthed }) {
         totalRounds={Math.max(...wb.map(m => m.round), 0)}
         onPick={onPick}
         proAuthed={proAuthed}
+        aligned
       />
       {lb.length > 0 && (
         <BracketSection
@@ -283,7 +397,8 @@ function BracketSection({
   proAuthed,
   accent,
   roundOverride,
-  roundLabel,
+  roundLabel: roundLabelProp,
+  aligned,
 }) {
   const cols = []
   for (let r = 1; r <= totalRounds; r++) {
@@ -297,31 +412,45 @@ function BracketSection({
       : accent === 'green'
       ? 'border-l-4 border-l-vinoy-green'
       : ''
+
+  const getLbl = (r) => roundLabelProp
+    ? roundLabelProp(r, totalRounds)
+    : sectionRoundLabel(r, totalRounds)
+
   return (
     <div className={`bg-white rounded-2xl border border-vinoy-border shadow-sm overflow-hidden ${headerClass}`}>
       <div className="px-4 py-3 border-b border-vinoy-border">
         <h3 className="font-display text-lg font-bold text-vinoy-green">{title}</h3>
       </div>
       <div className="overflow-x-auto p-3">
-        <div className="flex gap-3 min-w-max">
-          {cols.map((roundMatches, idx) => (
-            <div key={idx} className="flex flex-col gap-3 min-w-[12rem]">
-              <div className="text-xs font-semibold text-vinoy-ink/60 uppercase tracking-wider px-2">
-                {roundLabel
-                  ? roundLabel(idx + 1, totalRounds)
-                  : sectionRoundLabel(idx + 1, totalRounds)}
+        {aligned ? (
+          <AlignedBracketColumns
+            cols={cols}
+            totalRounds={totalRounds}
+            r1Count={cols[0]?.length ?? 0}
+            onPick={onPick}
+            proAuthed={proAuthed}
+            getRoundLabel={getLbl}
+          />
+        ) : (
+          <div className="flex gap-3 min-w-max">
+            {cols.map((roundMatches, idx) => (
+              <div key={idx} className="flex flex-col gap-3 min-w-[12rem]">
+                <div className="text-xs font-semibold text-vinoy-ink/60 uppercase tracking-wider px-2">
+                  {getLbl(idx + 1)}
+                </div>
+                {roundMatches.map((m) => (
+                  <BracketMatch
+                    key={m.id}
+                    match={m}
+                    onClick={() => onPick(m)}
+                    clickable={proAuthed && (m.ready || m.completed)}
+                  />
+                ))}
               </div>
-              {roundMatches.map((m) => (
-                <BracketMatch
-                  key={m.id}
-                  match={m}
-                  onClick={() => onPick(m)}
-                  clickable={proAuthed && (m.ready || m.completed)}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -335,37 +464,26 @@ function sectionRoundLabel(round, total) {
 }
 
 function BracketGrid({ bracket, matches, onPick, proAuthed }) {
-  const rounds = bracket.rounds || Math.max(...matches.map(m => m.round))
+  const totalRounds = bracket.rounds || Math.max(...matches.map(m => m.round), 1)
+  const r1Count = matches.filter(m => m.round === 1).length
   const cols = []
-  for (let r = 1; r <= rounds; r++) {
+  for (let r = 1; r <= totalRounds; r++) {
     cols.push(matches.filter(m => m.round === r))
   }
-
   return (
     <div className="bg-white rounded-2xl border border-vinoy-border shadow-sm overflow-hidden">
       <div className="px-4 py-3 border-b border-vinoy-border">
-        <h3 className="font-display text-lg font-bold text-vinoy-green">
-          Bracket
-        </h3>
+        <h3 className="font-display text-lg font-bold text-vinoy-green">Bracket</h3>
       </div>
-      <div className="overflow-x-auto p-3">
-        <div className="flex gap-3 min-w-max">
-          {cols.map((roundMatches, idx) => (
-            <div key={idx} className="flex flex-col gap-3 min-w-[12rem]">
-              <div className="text-xs font-semibold text-vinoy-ink/60 uppercase tracking-wider px-2">
-                {roundLabel(idx + 1, rounds)}
-              </div>
-              {roundMatches.map((m) => (
-                <BracketMatch
-                  key={m.id}
-                  match={m}
-                  onClick={() => onPick(m)}
-                  clickable={proAuthed && (m.ready || m.completed)}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
+      <div className="overflow-x-auto p-4">
+        <AlignedBracketColumns
+          cols={cols}
+          totalRounds={totalRounds}
+          r1Count={r1Count}
+          onPick={onPick}
+          proAuthed={proAuthed}
+          getRoundLabel={(r) => roundLabel(r, totalRounds)}
+        />
       </div>
     </div>
   )
@@ -378,7 +496,7 @@ function roundLabel(round, total) {
   return `Round ${round}`
 }
 
-function BracketMatch({ match, onClick, clickable }) {
+function BracketMatch({ match, onClick, clickable, dimmed }) {
   const winA = match.completed && match.winnerSlot === 'A'
   const winB = match.completed && match.winnerSlot === 'B'
   const Wrapper = clickable ? 'button' : 'div'
@@ -386,7 +504,8 @@ function BracketMatch({ match, onClick, clickable }) {
     <Wrapper
       onClick={clickable ? onClick : undefined}
       className={[
-        'block text-left bg-vinoy-cream rounded-xl border border-vinoy-border overflow-hidden',
+        'block w-full h-full text-left bg-vinoy-cream rounded-xl border border-vinoy-border overflow-hidden',
+        dimmed ? 'opacity-35' : '',
         clickable ? 'hover:border-vinoy-green' : '',
       ].join(' ')}
     >

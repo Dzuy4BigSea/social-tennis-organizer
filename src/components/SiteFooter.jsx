@@ -1,46 +1,30 @@
 import React from 'react'
-import VinoyHotelSilhouette from './VinoyHotelSilhouette.jsx'
 
 /**
- * Site-wide attribution. Tucked at the bottom of every screen and
- * the printed view so the credit travels with whatever ends up on
- * paper. Intentionally muted — never the focus of the page.
+ * Site-wide attribution. Tucked at the bottom of every screen so the
+ * credit travels with whatever ends up on paper. Intentionally muted
+ * — never the focus of the page.
  *
- * On screen, a faint line-art sketch of the Vinoy Park Hotel sits
- * behind the attribution as a subtle "anchored" detail. It's not
- * meant to be obvious; it's the kind of touch a guest might only
- * notice on the third visit. Hidden in print (the postcard image
- * doesn't render well on toner, and the credit's already small).
+ * The Vinoy Park Hotel sketch is a hand-drawn PNG served from /public.
+ * `mix-blend-multiply` lets its white background blend into the cream
+ * parchment page background, which both removes the white box and
+ * tints the ink slightly warmer — closer to a watercolour on aged
+ * paper than a pasted-in illustration. Hidden in print: the sketch
+ * doesn't render well on toner, and the credit is already small.
  */
 export default function SiteFooter({ className = '' }) {
+  const src = `${import.meta.env.BASE_URL}vinoy-hotel-sketch.png`
   return (
     <footer
-      className={`relative overflow-hidden mt-12 print:mt-0 ${className}`}
+      className={`mt-12 flex flex-col items-center print:mt-0 ${className}`}
     >
-      {/* Decorative background — pointer-events disabled so the
-          attribution link stays clickable through the SVG layer.
-          The wrapper holds the silhouette flush with the footer's
-          bottom edge; aspect ratio of the SVG (~3.5:1) drives how
-          tall the footer ends up at any given width. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center select-none opacity-[0.22] print:hidden"
-      >
-        <VinoyHotelSilhouette
-          className="w-full max-w-2xl sm:max-w-3xl lg:max-w-4xl text-vinoy-green"
-        />
-      </div>
-
-      {/* Inner div carries the attribution. The min-height pushes
-          the footer tall enough to display the full silhouette
-          (incl. tower finial) without overflow-hidden trimming the
-          top — the SVG's intrinsic aspect is ~3:1 so width drives
-          height directly. */}
-      <div className="relative text-center text-xs text-vinoy-ink/55 px-4 min-h-[14rem] sm:min-h-[16rem] lg:min-h-[19rem] flex items-end justify-center pb-5 sm:pb-6 print:min-h-0 print:pt-2 print:pb-2">
-        {/* Wrap the attribution in a single inline span so the text
-            and the link don't become separate flex items — that's
-            what was collapsing the space between "by" and "Big
-            Sea" on screen. */}
+      <img
+        src={src}
+        alt="The Vinoy Park Hotel"
+        className="w-full max-w-md sm:max-w-lg mix-blend-multiply select-none print:hidden"
+        draggable={false}
+      />
+      <div className="text-center text-xs text-vinoy-ink/55 px-4 pb-5 sm:pb-6 print:pt-2 print:pb-2">
         <span>
           Purpose Built by{' '}
           <a

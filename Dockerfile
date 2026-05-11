@@ -15,5 +15,8 @@ COPY --from=builder /app/dist/ /usr/share/nginx/html/feedin/
 COPY nginx/feedin.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
+# Use 127.0.0.1 explicitly; nginx listens on 0.0.0.0:80 (IPv4 only),
+# but busybox wget resolves `localhost` to ::1 first inside the
+# container and the IPv6 attempt is refused before it tries IPv4.
 HEALTHCHECK --interval=30s --timeout=5s \
-  CMD wget -q --spider http://localhost/feedin/ || exit 1
+  CMD wget -q --spider http://127.0.0.1/feedin/ || exit 1

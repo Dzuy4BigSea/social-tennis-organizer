@@ -1,12 +1,10 @@
 import React, { useState, useMemo } from 'react'
 import StandingsGrid from './StandingsGrid.jsx'
-import PinGate from './PinGate.jsx'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import LiveBracket from './LiveBracket.jsx'
 import OrnamentalRule from './OrnamentalRule.jsx'
 import { upcomingMatches } from '../utils/schedule.js'
-import { getStoredPin } from '../utils/share.js'
 import { formatMatchTime } from '../utils/format.js'
 import { resolveFinalsSlot, placeholderLabel } from '../utils/groups.js'
 
@@ -23,20 +21,14 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
       draw: d,
     }))
   const [activeId, setActiveId] = useState(tabs[0]?.id ?? null)
-  const [showPinGate, setShowPinGate] = useState(false)
-  const [pendingAction, setPendingAction] = useState(null)
 
-  const proAuthed = !tournament.pinHash || Boolean(getStoredPin())
+  // Access is enforced by Supabase RLS; the in-app PIN gate is gone.
+  // `proAuthed` and `ifAuthed` remain as trivial passthroughs so callsites
+  // can be inlined in a separate cleanup pass without changing behavior.
+  const proAuthed = true
+  const ifAuthed = (fn) => fn()
 
   const active = tabs.find(t => t.id === activeId) ?? tabs[0]
-
-  function ifAuthed(fn) {
-    if (proAuthed) fn()
-    else {
-      setPendingAction(() => fn)
-      setShowPinGate(true)
-    }
-  }
 
   return (
     <div className="max-w-5xl mx-auto px-3 py-4">
@@ -51,16 +43,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
             <SaveStatus
               status={saveStatus}
               hasRoomCode={Boolean(tournament.roomCode)}
-              onFix={() => setShowPinGate(true)}
             />
-            {!proAuthed && tournament.pinHash && (
-              <button
-                onClick={() => setShowPinGate(true)}
-                className="px-3 py-2 rounded-xl border border-vinoy-green text-vinoy-green text-sm font-semibold"
-              >
-                Pro mode
-              </button>
-            )}
             <button
               onClick={onGoHome}
               className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"
@@ -78,7 +61,7 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
               </button>
             )}
             <button
-              onClick={() => ifAuthed(() => dispatch({ type: 'BACK_TO_SETUP' }))}
+              onClick={() => dispatch({ type: 'BACK_TO_SETUP' })}
               className="px-3 py-2 rounded-xl border border-vinoy-border text-sm bg-white hover:bg-vinoy-cream"
             >
               Setup
@@ -125,22 +108,6 @@ export default function LiveBoard({ state, dispatch, saveStatus, onGoHome, onPri
         </>
       )}
 
-      {showPinGate && (
-        <PinGate
-          pinHash={tournament.pinHash}
-          onUnlock={() => {
-            setShowPinGate(false)
-            if (pendingAction) {
-              pendingAction()
-              setPendingAction(null)
-            }
-          }}
-          onClose={() => {
-            setShowPinGate(false)
-            setPendingAction(null)
-          }}
-        />
-      )}
     </div>
   )
 }

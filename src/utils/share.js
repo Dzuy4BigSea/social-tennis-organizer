@@ -6,7 +6,6 @@ import {
 
 // Unambiguous characters — easy to read aloud or type on mobile
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const PIN_KEY = 'feedin-pin' // stored in localStorage, scoped per device
 const RECENT_KEY = 'feedin-recent-rooms'
 // Storage cap is generous; the Home screen shows the most recent
 // five separately and renders the rest under an "All events" archive
@@ -67,28 +66,10 @@ export function removeRecentRoom(code) {
   } catch {}
 }
 
-export function getStoredPin() {
-  try {
-    return localStorage.getItem(PIN_KEY) || ''
-  } catch {
-    return ''
-  }
-}
-
-export function setStoredPin(pin) {
-  try {
-    if (pin) localStorage.setItem(PIN_KEY, pin)
-    else localStorage.removeItem(PIN_KEY)
-  } catch {}
-}
-
-// Server I/O moved to Supabase in Phase 3. The signatures match the old
-// PHP-backed wrappers so the store, polling, and beacon flush in
-// useTournament.js don't need to change. Access control is now RLS on
-// `events` / `event_state` / `event_join_codes` keyed off the signed-in
-// user's club role — the X-Tournament-Pin header is gone. The PIN UI
-// (PinGate, getStoredPin) is left in place for now; it's effectively
-// inert at the network layer and will be removed in a follow-up.
+// Server I/O is Supabase-backed; access control is RLS on `events` /
+// `event_state` / `event_join_codes` keyed off the signed-in user's
+// club role. The signatures match the old PHP-backed wrappers so the
+// store, polling, and beacon flush in useTournament.js don't change.
 
 export async function saveToRoom(code, state) {
   return saveEventByCode(code, state)
@@ -100,14 +81,6 @@ export function saveToRoomBeacon(code, state) {
 
 export async function loadFromRoom(code) {
   return loadEventByCode(code)
-}
-
-// PIN-check kept for backwards compat with the Setup/LiveBoard PIN
-// gates; they no longer affect server writes. The gate is now purely
-// a local "have you set a PIN on this device" check — keep returning
-// true so the gates don't block authenticated users.
-export async function checkPin(_code) {
-  return true
 }
 
 /**
@@ -150,22 +123,4 @@ export function importJSON(file, dispatch) {
     reader.onerror = () => reject(new Error('Failed to read file'))
     reader.readAsText(file)
   })
-}
-
-/**
- * Hash a PIN with SubtleCrypto. Server stores the same hash so we never
- * write the plaintext PIN to disk. Falls back to a simple hash if the
- * crypto API is unavailable.
- */
-export async function hashPin(pin) {
-  if (window.crypto?.subtle) {
-    const enc = new TextEncoder().encode(`feedin:${pin}`)
-    const buf = await window.crypto.subtle.digest('SHA-256', enc)
-    return Array.from(new Uint8Array(buf))
-      .map(b => b.toString(16).padStart(2, '0'))
-      .join('')
-  }
-  let h = 0
-  for (let i = 0; i < pin.length; i++) h = (h * 31 + pin.charCodeAt(i)) >>> 0
-  return h.toString(16)
 }

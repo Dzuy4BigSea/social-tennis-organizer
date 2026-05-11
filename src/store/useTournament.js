@@ -30,7 +30,7 @@ function newId(prefix = 'id') {
  *   tournament: {
  *     name, dates/times, ongoing,
  *     passes: [{ winningScore }, ...],  // event-level default for new RR divs
- *     roomCode, pinHash,
+ *     roomCode,
  *     defaults: { variant, rating, entrantKind },  // pre-fill the
  *                                                  // Add Division dialog
  *   },
@@ -74,7 +74,6 @@ export const initialState = {
     slotMinutes: 30,
     // Sharing/auth
     roomCode: null,
-    pinHash: null,
     // Legacy fields, kept only so the migrator can read them.
     type: undefined, variant: undefined, rating: undefined, date: '',
   },
@@ -1162,9 +1161,6 @@ function reducer(state, action) {
 
     case 'SET_ROOM_CODE':
       return { ...state, tournament: { ...state.tournament, roomCode: action.payload } }
-
-    case 'SET_PIN_HASH':
-      return { ...state, tournament: { ...state.tournament, pinHash: action.payload } }
 
     case 'LOAD_STATE':
       return migrate({ ...initialState, ...action.payload })

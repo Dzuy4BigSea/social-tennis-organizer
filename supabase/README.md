@@ -1,8 +1,8 @@
 # Supabase setup
 
-Phase 1 of the migration off the PHP backend. The React app is unchanged for
-now; this directory just stands up the database the app will eventually point
-at.
+The React app talks to the project defined here. Phases 1-3 stood up the
+schema, RLS, and the data layer; Phase 4 added the atomic event-creation
+RPC in `migrations/0003_create_event_atomic.sql`.
 
 ## One-time setup
 
@@ -30,10 +30,8 @@ at.
   `profiles` trigger.
 - `migrations/0002_rls.sql` – row-level security policies and the
   `has_club_role` / `is_event_editor` helpers.
+- `migrations/0003_create_event_atomic.sql` – `create_event_with_code`
+  RPC. Single-transaction insert of `events` + `event_join_codes` +
+  `event_state` so a failed second/third write doesn't leave an orphan.
+  SECURITY DEFINER; explicit pro/head_pro check inside the function.
 - `seed.sql` – bootstrap one club + your head_pro role.
-
-## What's intentionally not here yet
-
-No app code touches Supabase yet. Phase 3 will swap the in-memory store for
-Supabase queries in a single pass; running both backends in parallel isn't
-worth the complexity.

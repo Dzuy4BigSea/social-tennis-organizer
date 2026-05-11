@@ -41,6 +41,11 @@ services:
     image: containrrr/watchtower:1.7.1
     container_name: feedin-watchtower
     restart: unless-stopped
+    environment:
+      # Watchtower 1.7.1 ships a Docker SDK that defaults to API 1.25;
+      # docker 29.x on the VPS rejects anything below 1.40. Pin to a
+      # modern-but-conservative API version so negotiation succeeds.
+      - DOCKER_API_VERSION=1.45
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     command:

@@ -5,21 +5,6 @@ import { supabase } from './supabase.js'
 // internally we map code → event uuid via event_join_codes, and the
 // canonical state blob lives in event_state.state (jsonb).
 
-let _clubIdCache = null
-async function getCurrentClubId() {
-  if (_clubIdCache) return _clubIdCache
-  const { data: userRes } = await supabase.auth.getUser()
-  if (!userRes?.user) return null
-  const { data } = await supabase
-    .from('roles')
-    .select('club_id')
-    .eq('user_id', userRes.user.id)
-    .limit(1)
-    .maybeSingle()
-  _clubIdCache = data?.club_id ?? null
-  return _clubIdCache
-}
-
 async function eventIdForCode(code) {
   const { data } = await supabase
     .from('event_join_codes')
@@ -28,14 +13,6 @@ async function eventIdForCode(code) {
     .maybeSingle()
   return data?.event_id ?? null
 }
-
-// Reset the cached club id when the session changes; otherwise a
-// sign-out / sign-in as a different user would still see the
-// previous user's club. The Supabase client emits SIGNED_IN /
-// SIGNED_OUT events on auth state transitions.
-supabase.auth.onAuthStateChange(() => {
-  _clubIdCache = null
-})
 
 export async function loadEventByCode(code) {
   if (!code) return null
@@ -50,11 +27,11 @@ export async function loadEventByCode(code) {
   return data?.state ?? null
 }
 
-// First-time save creates the events row, the event_state row, and the
-// event_join_codes row in three sequential inserts. Not transactional
-// today — if the second or third fails we'd leave an orphan row. That's
-// acceptable for Phase 3 (the most common path is the happy one);
-// Phase 4 will move this behind a single Postgres RPC.
+// First-time save now goes through the create_event_with_code RPC
+// (migration 0003), which inserts events / event_join_codes /
+// event_state in one transaction. Subsequent saves are just an upsert
+// on event_state. The RPC does the club lookup + pro/head_pro check
+// server-side, so the client doesn't need to fetch the club id first.
 export async function saveEventByCode(code, state) {
   if (!code) return { ok: false, status: 400 }
   const { data: userRes } = await supabase.auth.getUser()
@@ -64,35 +41,29 @@ export async function saveEventByCode(code, state) {
   let id = await eventIdForCode(code)
 
   if (!id) {
-    const clubId = await getCurrentClubId()
-    if (!clubId) return { ok: false, status: 403 }
-
     const t = state?.tournament || {}
     const status =
       state?.phase === 'live' ? 'live'
       : state?.phase === 'completed' ? 'completed'
       : 'draft'
 
-    const { data: ev, error: evErr } = await supabase
-      .from('events')
-      .insert({
-        club_id: clubId,
-        owner_id: user.id,
-        name: t.name || 'Untitled event',
-        // The detailed kind lives per-division inside state; events.event_type
-        // is just a tag for cross-event queries. "mixed" until we add UI.
-        event_type: 'mixed',
-        status,
-      })
-      .select('id')
-      .single()
-    if (evErr) return { ok: false, status: 500 }
-    id = ev.id
-
-    const { error: codeErr } = await supabase
-      .from('event_join_codes')
-      .insert({ code, event_id: id, created_by: user.id })
-    if (codeErr) return { ok: false, status: 500 }
+    const { data: newId, error: rpcErr } = await supabase.rpc('create_event_with_code', {
+      p_code: code,
+      p_name: t.name || 'Untitled event',
+      // The detailed kind lives per-division inside state; events.event_type
+      // is just a tag for cross-event queries. "mixed" until we add UI.
+      p_event_type: 'mixed',
+      p_status: status,
+      p_state: state,
+    })
+    if (rpcErr) {
+      // 42501 = insufficient_privilege. Raised by the RPC when the
+      // caller has no club or no pro/head_pro role on it; surface as
+      // 403 so the store's saveStatus reaches 'forbidden'.
+      if (rpcErr.code === '42501') return { ok: false, status: 403 }
+      return { ok: false, status: 500 }
+    }
+    return { ok: true, status: 200 }
   }
 
   const { error: stateErr } = await supabase

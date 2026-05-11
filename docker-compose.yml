@@ -1,8 +1,9 @@
 # Run on the Hostinger VPS:
 #   docker compose pull && docker compose up -d
 #
-# Persists per-room JSON in the named volume so image updates don't wipe
-# in-progress tournaments.
+# State now lives in Supabase; the legacy `feedin-data` volume that held
+# per-room JSON files for the PHP backend is no longer mounted. The
+# named volume still exists on the host until you `docker volume rm` it.
 
 services:
   feedin:
@@ -14,8 +15,6 @@ services:
       # collides with another container, or remove this block entirely
       # and rely on labels below if the reverse proxy handles routing.
       - "8088:80"
-    volumes:
-      - feedin-data:/var/www/html/feedin/tennis-data
     # Join the same docker network as the front-end nginx reverse proxy so
     # `proxy_pass http://feedin;` resolves. Recreating the container (e.g.
     # `docker compose pull && up -d`) keeps the attachment, which a manual
@@ -34,8 +33,22 @@ services:
     #   - "traefik.http.routers.feedin.tls.certresolver=letsencrypt"
     #   - "traefik.http.services.feedin.loadbalancer.server.port=80"
 
-volumes:
-  feedin-data:
+  # Polls GHCR every 5 minutes for a new digest of the feedin image and
+  # restarts the container with the new image when one appears. Scoped to
+  # `feedin` by the last argument; anything else on the host is left alone.
+  # --cleanup also prunes the old image after a successful update.
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    container_name: feedin-watchtower
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command:
+      - --interval=300
+      - --cleanup
+      - feedin
+    networks:
+      - default
 
 networks:
   # The default per-project bridge — keeps the feedin container in its own

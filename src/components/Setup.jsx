@@ -1,6 +1,5 @@
 import React, { useState } from 'react'
-import { generateRoomCode, setRoomCodeInURL, getStoredPin } from '../utils/share.js'
-import PinGate, { PinSetup } from './PinGate.jsx'
+import { generateRoomCode, setRoomCodeInURL } from '../utils/share.js'
 import SaveStatus from './SaveStatus.jsx'
 import Brand from './Brand.jsx'
 import SetupBracket from './SetupBracket.jsx'
@@ -17,14 +16,17 @@ import { getVariant, getRatingLabel } from '../utils/eventTypes.js'
 
 export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }) {
   const { tournament, divisions } = state
-  const [showPinSetup, setShowPinSetup] = useState(false)
-  const [showPinGate, setShowPinGate] = useState(false)
   const [showAddDivision, setShowAddDivision] = useState(false)
   // Top-level view tab — keep both surfaces in this same component
-  // so the EventDetailsCard / nav / pro-auth flow stays shared.
+  // so the EventDetailsCard / nav stays shared.
   const [view, setView] = useState('setup') // 'setup' | 'schedule'
 
-  const proAuthed = !tournament.pinHash || Boolean(getStoredPin())
+  // Access is enforced by Supabase RLS; the in-app PIN gate is gone.
+  // `proAuthed` and `ifAuthed` remain as trivial passthroughs so callsites
+  // can be inlined in a separate cleanup pass without changing behavior.
+  const proAuthed = true
+  const ifAuthed = (fn) => fn()
+
   const anyLocked = (divisions || []).some(d => d.locked)
 
   function ensureRoomCode() {
@@ -35,18 +37,8 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
     return code
   }
 
-  async function handlePinSet(hash) {
-    dispatch({ type: 'SET_PIN_HASH', payload: hash })
-    setShowPinSetup(false)
-  }
-
-  function ifAuthed(fn) {
-    if (proAuthed) fn()
-    else setShowPinGate(true)
-  }
-
   function handleAddDivision(payload) {
-    ifAuthed(() => dispatch({ type: 'ADD_DIVISION', payload }))
+    dispatch({ type: 'ADD_DIVISION', payload })
     setShowAddDivision(false)
   }
 
@@ -56,11 +48,9 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
         tournament={tournament}
         roomCode={tournament.roomCode}
         onRoomCode={ensureRoomCode}
-        onSetPin={() => setShowPinSetup(true)}
         onGoHome={onGoHome}
         onPrint={onPrint}
         saveStatus={saveStatus}
-        onFixPin={() => setShowPinGate(true)}
       />
 
       <EventDetailsCard
@@ -70,20 +60,6 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
       />
 
       <ViewTabs view={view} onChange={setView} hasLocked={anyLocked} />
-
-      {!tournament.pinHash && view === 'setup' && (
-        <div className="bg-yellow-50 border border-yellow-300 rounded-2xl p-4 mb-4 text-sm">
-          <p className="text-yellow-900">
-            <strong>No PIN set.</strong> Anyone with the event code can edit scores. Set a PIN so only the pros can score.
-          </p>
-          <button
-            onClick={() => setShowPinSetup(true)}
-            className="mt-2 px-4 py-2 rounded-xl bg-yellow-500 text-white font-semibold"
-          >
-            Set PIN
-          </button>
-        </div>
-      )}
 
       {view === 'setup' && (
         <section className="mb-2">
@@ -160,16 +136,6 @@ export default function Setup({ state, dispatch, saveStatus, onGoHome, onPrint }
           defaults={tournament.defaults || {}}
           onCreate={handleAddDivision}
           onClose={() => setShowAddDivision(false)}
-        />
-      )}
-      {showPinSetup && (
-        <PinSetup onSet={handlePinSet} onClose={() => setShowPinSetup(false)} />
-      )}
-      {showPinGate && (
-        <PinGate
-          pinHash={tournament.pinHash}
-          onUnlock={() => setShowPinGate(false)}
-          onClose={() => setShowPinGate(false)}
         />
       )}
     </div>
@@ -316,7 +282,7 @@ function EventDetailsCard({ tournament, ifAuthed, dispatch }) {
   )
 }
 
-function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint, saveStatus, onFixPin }) {
+function Header({ tournament, roomCode, onRoomCode, onGoHome, onPrint, saveStatus }) {
   const shareUrl = roomCode
     ? `${window.location.origin}${window.location.pathname}#room=${roomCode}`
     : ''
@@ -325,7 +291,7 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <Brand subtitle={tournament.name} onClick={onGoHome} />
         <div className="flex items-center gap-2 flex-wrap">
-          <SaveStatus status={saveStatus} hasRoomCode={Boolean(roomCode)} onFix={onFixPin} />
+          <SaveStatus status={saveStatus} hasRoomCode={Boolean(roomCode)} />
           <button
             onClick={onGoHome}
             className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"
@@ -342,13 +308,6 @@ function Header({ tournament, roomCode, onRoomCode, onSetPin, onGoHome, onPrint,
               Print
             </button>
           )}
-          <button
-            onClick={onSetPin}
-            className="text-xs px-3 py-2 rounded-xl border border-vinoy-border bg-white hover:bg-vinoy-cream"
-            title="Set or change pro PIN"
-          >
-            {tournament.pinHash ? 'Change PIN' : 'Set PIN'}
-          </button>
         </div>
       </div>
       <OrnamentalRule className="mb-4" />

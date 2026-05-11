@@ -11,9 +11,10 @@ Tailwind via CDN, dnd-kit for drag-and-drop. Deployed as a Docker
 image to Hostinger via GitHub Actions + GHCR.
 
 Originally a single-file PHP backend persisted state per "room code".
-Mid-2026 we started moving it to Supabase for auth + storage; that
-migration is structurally complete (Phases 1-3) — the PHP files are
-still in the image but the React app no longer talks to them.
+Mid-2026 we moved it to Supabase for auth + storage. As of Phase 4
+(this branch) the PHP runtime is gone from the image, the in-app PIN
+gate has been deleted, the first-time save is a single Postgres RPC,
+and the production container auto-redeploys via Watchtower.
 
 ## Stack and key files
 
@@ -30,21 +31,22 @@ still in the image but the React app no longer talks to them.
   publishable values, intentionally in source.
 - `src/lib/events.js` — Supabase event CRUD. Maps the 6-char room
   code identity onto `events` / `event_join_codes` / `event_state`.
-  First-time save does three sequential inserts; later saves are an
-  upsert.
+  First-time save goes through the `create_event_with_code` RPC
+  (single tx); later saves are an `event_state` upsert.
 - `src/components/Auth.jsx` — sign-in screen. App shows it when there
   is no Supabase session.
 - `src/components/SiteFooter.jsx` — fixed-position Vinoy Park Hotel
   sketch watermark (`mix-blend-multiply`, opacity 0.75, `-z-10`) plus
   the "Purpose Built by Big Sea" attribution.
-- `supabase/migrations/0001_init.sql`, `0002_rls.sql` — schema and
-  RLS. Applied to the live project; do not edit in place — write a
-  new `0003_*.sql` if the schema needs to change.
+- `supabase/migrations/0001_init.sql`, `0002_rls.sql`,
+  `0003_create_event_atomic.sql` — schema, RLS, and the atomic-event
+  RPC. Applied to the live project; do not edit in place — write a
+  new `0004_*.sql` if the schema needs to change.
 - `supabase/seed.sql` — one-off bootstrap that creates a club and
   grants the named user `head_pro`. Already run for `dzuy@bigsea.co`.
-- `tennis-save.php` (built into the image via `Dockerfile`) — legacy
-  PHP backend. **Not called** by the React app anymore. Safe to
-  delete once we're confident nothing references it.
+- `nginx/feedin.conf` — runtime config. Serves `/usr/share/nginx/html`
+  with `/feedin/` as the SPA root; long-cache for hashed assets,
+  no-cache for `index.html` so a redeploy is picked up next page load.
 
 ## Supabase
 
@@ -57,6 +59,11 @@ still in the image but the React app no longer talks to them.
 - RLS enforces club membership via `has_club_role` /
   `is_event_editor` SECURITY DEFINER helpers (so they can read
   `roles` without recursing through that table's own policies).
+- `create_event_with_code(p_code, p_name, p_event_type, p_status,
+  p_state)` is a SECURITY DEFINER plpgsql function that inserts
+  `events` + `event_join_codes` + `event_state` in one transaction.
+  Granted to `authenticated`. Re-checks the head_pro/pro role
+  explicitly because SECURITY DEFINER bypasses RLS.
 - Bootstrap: head pro is `dzuy@bigsea.co` in club "My Club".
 
 ## Deployment
@@ -66,19 +73,22 @@ by `.github/workflows/deploy.yml` on every push to `main` (PRs don't
 trigger a build — the squash-merge is what produces `:latest`).
 
 On the Hostinger VPS, the compose file lives at
-`/root/feedin/docker-compose.yml`. Redeploy:
+`/root/feedin/docker-compose.yml`. A Watchtower sidecar
+(`containrrr/watchtower:1.7.1`, scoped to the `feedin` container,
+5-minute poll, `--cleanup`) handles auto-redeploy when a new image
+appears on GHCR. Manual redeploy when the compose file itself
+changes:
 
 ```
 cd /root/feedin && docker compose pull && docker compose up -d
 ```
 
-There is **no auto-deploy yet** — the VPS only pulls when someone
-SSHes in and runs the command. See the follow-ups section.
-
 The Vite bundle is content-hashed (`app-[hash].js`) so browsers can't
 serve a stale `app.js` after a deploy. Older versions of this repo
 hard-coded `app.js`, which led to a memorable afternoon of "the new
-code is on the server but the browser disagrees."
+code is on the server but the browser disagrees." nginx serves the
+HTML with `Cache-Control: no-cache` and the hashed assets with
+`Cache-Control: public, immutable; expires 1y` to match.
 
 ## Branches and PR flow
 
@@ -113,38 +123,26 @@ code is on the server but the browser disagrees."
   session; otherwise the existing screens.
 - ✅ **Phase 3** — data layer. `useTournament` is unchanged; the
   three I/O functions in `share.js` now go through `events.js`.
-- ⏭ **Phase 4 (not started)** — see follow-ups.
+- ✅ **Phase 4** — runtime cleanup. PHP runtime out, image on
+  nginx:alpine, PIN UI deleted, first-save behind a single RPC,
+  Watchtower handling auto-redeploy.
 
 ## Known follow-ups
 
 - **Supabase Site URL is still `localhost:3000`.** Password-recovery
   emails point at it and don't load. Fix in
   Supabase → Authentication → URL Configuration. Set both Site URL
-  and the Redirect URLs allowlist to the actual public URL.
-- **Auto-deploy.** `deploy.yml` only builds + pushes the image. Two
-  reasonable options:
-  - Append an `appleboy/ssh-action` step that SSHes into the VPS
-    and runs `docker compose pull && docker compose up -d`. Needs
-    `VPS_HOST` / `VPS_USER` / `VPS_SSH_KEY` repo secrets and a
-    deploy-only user on the VPS.
-  - Add Watchtower as a sidecar in `docker-compose.yml`. It polls
-    GHCR for new digests and restarts the `feedin` container when
-    one appears. No GitHub-side credentials required.
-- **PIN UI cleanup.** `PinGate`, `getStoredPin`, etc. in
-  `src/components/PinGate.jsx`, `Setup.jsx`, `LiveBoard.jsx` are
-  inert at the network layer but still appear in the UI. Tear them
-  out and let the Supabase auth gate be the only access check.
+  and the Redirect URLs allowlist to the actual public URL. This is
+  a dashboard-only change, no code/migration involved.
 - **`public/vinoy-hotel-sketch.png` is 637 KB.** Run it through
   `pngquant`/`optipng`/`oxipng` — probably gets to ~150-200 KB
-  without visible quality loss.
-- **Atomic event creation.** `saveEventByCode` does three sequential
-  inserts on first save (events, event_join_codes, event_state). If
-  the second or third fails we'd leave an orphan row. Fold them into
-  a single Postgres RPC.
-- **The PHP backend is still in the Docker image.** Drop the PHP
-  install + `tennis-save.php` from the `Dockerfile` once we're
-  confident no one's hitting it. Apache becomes nginx/static at that
-  point and the container shrinks.
+  without visible quality loss. Not done in Phase 4 because no
+  optimizer was installed on the workstation that did the work.
+- **`proAuthed` / `ifAuthed` passthroughs in `Setup.jsx` and
+  `LiveBoard.jsx`.** Phase 4 reduced these to a constant `true` and
+  a `(fn) => fn()` wrapper so the per-action callsites didn't all
+  have to change at once. A follow-up pass can inline them and
+  delete the helpers.
 
 ## Things to know that aren't obvious from the code
 
@@ -167,12 +165,16 @@ code is on the server but the browser disagrees."
 
 ## Anti-patterns to avoid
 
-- Don't edit applied migrations (`0001_init.sql`, `0002_rls.sql`) —
-  add a new one.
+- Don't edit applied migrations (`0001_init.sql`, `0002_rls.sql`,
+  `0003_create_event_atomic.sql`) — add a new one.
 - Don't force-push `main`. The PR flow handles main; only feature
   branches get the rebase-and-force dance.
 - Don't introduce a service worker or aggressive HTTP caching headers
   without coordinating with the content-hash bundle naming, or we'll
-  reproduce the cache problem we just solved.
-- Don't ship code that calls `tennis-save.php`. The endpoint exists
-  in the image but is unmanaged — use `src/lib/events.js` instead.
+  reproduce the cache problem we just solved. The nginx config
+  already does the right split (immutable for hashed assets,
+  no-cache for `index.html`) — don't undo that.
+- Don't reintroduce PHP, mod_php, or `tennis-save.php`. The runtime
+  is static-only via nginx; anything that needs to write to the
+  server belongs in Supabase (RLS-gated table writes or a new
+  `security definer` RPC).
